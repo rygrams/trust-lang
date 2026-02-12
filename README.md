@@ -37,7 +37,7 @@ trusty --help
 
 ## Quick Start
 
-Create a file `hello.trust`:
+Create a file `hello.trs`:
 
 ```typescript
 function greet(name: string): string {
@@ -52,7 +52,7 @@ function main() {
 Compile and run:
 
 ```bash
-trusty run hello.trust
+trusty run hello.trs
 ```
 
 ## Documentation
@@ -73,7 +73,7 @@ cargo build --workspace
 cargo test --workspace
 
 # Run CLI
-cargo run -p trusty-cli -- examples/fibonacci.trust
+cargo run -p trusty-cli -- examples/fibonacci.trs
 ```
 
 ## Project Structure

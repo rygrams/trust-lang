@@ -69,7 +69,7 @@ fn main() -> Result<()> {
                 // Default: build
                 build_file(input, None, false, false)?;
             } else {
-                println!("Usage: trusty <file.trust> or trusty --help");
+                println!("Usage: trusty <file.trs> or trusty --help");
             }
         }
     }

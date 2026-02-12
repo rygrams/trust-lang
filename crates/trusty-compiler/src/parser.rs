@@ -5,7 +5,10 @@ use swc_ecma_parser::{Parser, StringInput, Syntax, TsSyntax};
 
 pub fn parse_typescript(code: &str) -> Result<Module> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("input.trust".into()).into(), code.into());
+    let fm = cm.new_source_file(
+        FileName::Custom("input.trs".into()).into(),
+        code.to_owned(),
+    );
 
     let mut parser = Parser::new(
         Syntax::Typescript(TsSyntax {
