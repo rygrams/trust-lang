@@ -39,5 +39,6 @@ pub fn transpile_type_annotation(type_ann: &TsTypeAnn) -> String {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 }
