@@ -1,5 +1,7 @@
 # TRUST Language
 
+> ⚠️ Experimental project: TRUST is currently in active development and not yet production-ready.
+
 Trust (trust-lang) is a TypeScript-like language that compiles to Rust and produces native binaries. It keeps a familiar TS-style syntax while adopting Rust’s ownership model and zero-cost abstractions to deliver near-Rust performance without a JavaScript runtime.
 
 ## Features
