@@ -1,14 +1,14 @@
 use anyhow::Result;
 use swc_common::{sync::Lrc, FileName, SourceMap};
 use swc_ecma_ast::Module;
-use swc_ecma_parser::{Parser, StringInput, Syntax, TsConfig};
+use swc_ecma_parser::{Parser, StringInput, Syntax, TsSyntax};
 
 pub fn parse_typescript(code: &str) -> Result<Module> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("input.trust".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("input.trust".into()).into(), code.into());
 
     let mut parser = Parser::new(
-        Syntax::Typescript(TsConfig {
+        Syntax::Typescript(TsSyntax {
             tsx: false,
             decorators: false,
             ..Default::default()

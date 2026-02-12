@@ -3,7 +3,6 @@ pub mod parser;
 pub mod transpiler;
 
 use anyhow::Result;
-use swc_ecma_ast::Module;
 
 pub fn compile(source: &str) -> Result<String> {
     let ast = parser::parse_typescript(source)?;

@@ -9,7 +9,7 @@ pub fn transpile_type(ts_type: &TsType) -> String {
             _ => "()".to_string(),
         },
         TsType::TsTypeRef(type_ref) => {
-            if let Expr::Ident(ident) = &*type_ref.type_name {
+            if let TsEntityName::Ident(ident) = &type_ref.type_name {
                 let type_name = ident.sym.to_string();
                 match type_name.as_str() {
                     // Entiers

@@ -24,17 +24,25 @@ fn transpile_params(params: &[Param]) -> Result<String> {
                 _ => "unknown".to_string(),
             };
 
-            let type_str = if let Some(type_ann) = &p.pat.type_ann() {
-                transpile_type_annotation(type_ann)
-            } else {
-                "i32".to_string()
-            };
+            let type_str = param_type_annotation(&p.pat)
+                .map(transpile_type_annotation)
+                .unwrap_or_else(|| "i32".to_string());
 
             format!("{}: {}", name, type_str)
         })
         .collect();
 
     Ok(param_strs.join(", "))
+}
+
+fn param_type_annotation(pat: &Pat) -> Option<&TsTypeAnn> {
+    match pat {
+        Pat::Ident(ident) => ident.type_ann.as_deref(),
+        Pat::Array(array) => array.type_ann.as_deref(),
+        Pat::Object(object) => object.type_ann.as_deref(),
+        Pat::Rest(rest) => rest.type_ann.as_deref(),
+        _ => None,
+    }
 }
 
 fn transpile_return_type(return_type: &Option<Box<TsTypeAnn>>) -> Result<String> {

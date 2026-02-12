@@ -1,0 +1,24 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment/local config
+.env
+.env.*
+
+# Logs
+*.log
+
+# Keep Cargo.lock tracked for binaries/CLI
+#! Cargo.lock

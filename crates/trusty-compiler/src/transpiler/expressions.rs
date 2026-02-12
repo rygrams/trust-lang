@@ -18,7 +18,7 @@ pub fn transpile_expression(expr: &Expr) -> Result<String> {
         Expr::Ident(ident) => Ok(ident.sym.to_string()),
         Expr::Lit(lit) => match lit {
             Lit::Num(num) => Ok(num.value.to_string()),
-            Lit::Str(s) => Ok(format!("\"{}\"", s.value)),
+            Lit::Str(s) => Ok(format!("\"{}\"", s.value.to_string_lossy())),
             Lit::Bool(b) => Ok(b.value.to_string()),
             _ => Ok("unknown_literal".to_string()),
         },
