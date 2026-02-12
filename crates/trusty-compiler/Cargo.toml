@@ -1,0 +1,22 @@
+[package]
+name = "trusty-compiler"
+version = "0.0.1"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "trusty_compiler"
+path = "src/lib.rs"
+
+[dependencies]
+# Utiliser les dépendances du workspace
+swc_ecma_parser.workspace = true
+swc_ecma_ast.workspace = true
+swc_common.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Pour les tests
+pretty_assertions = "1.4"
