@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["crates/trusty-compiler", "crates/trusty-cli"]
+
+# Dépendances partagées entre tous les crates
+[workspace.dependencies]
+# Parser TypeScript
+swc_ecma_parser = "32.0"
+swc_ecma_ast = "19.0"
+swc_common = "18.0"
+
+# Utilitaires
+anyhow = "1.0.101"
+thiserror = "2.0.18"
+
+# CLI
+clap = { version = "4.5.58", features = ["derive"] }
+
+# Sérialisation
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "0.9.11"
+
+[workspace.metadata]
+# Métadonnées du projet
+authors = ["Grams"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
