@@ -12,8 +12,25 @@ Trust (trust-lang) is a TypeScript-like language that compiles to Rust and produ
 
 ## Installation
 
+Prerequisites:
+
+- Rust toolchain installed (`rustup`, `cargo`)
+
+From source (this repository):
+
 ```bash
+# Clone
+git clone https://github.com/you/trust-lang
+cd trust-lang
+
+# Install the CLI binary
 cargo install --path crates/trusty-cli
+```
+
+Verify installation:
+
+```bash
+trusty --help
 ```
 
 ## Quick Start
