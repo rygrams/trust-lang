@@ -11,6 +11,14 @@ pub fn transpile_expression(expr: &Expr) -> Result<String> {
                 BinaryOp::Sub => "-",
                 BinaryOp::Mul => "*",
                 BinaryOp::Div => "/",
+                BinaryOp::Lt => "<",
+                BinaryOp::LtEq => "<=",
+                BinaryOp::Gt => ">",
+                BinaryOp::GtEq => ">=",
+                BinaryOp::EqEq | BinaryOp::EqEqEq => "==",
+                BinaryOp::NotEq | BinaryOp::NotEqEq => "!=",
+                BinaryOp::LogicalAnd => "&&",
+                BinaryOp::LogicalOr => "||",
                 _ => "?",
             };
             Ok(format!("{} {} {}", left, op, right))
@@ -85,10 +93,16 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread]) -> Result<S
         return Ok(format!("println!(\"{{}}\", {})", arg_strs?.join(", ")));
     }
 
-    // Generic method call
     let arg_strs: Result<Vec<String>> = args
         .iter()
         .map(|arg| transpile_expression(&arg.expr))
         .collect();
-    Ok(format!("{}.{}({})", obj, prop, arg_strs?.join(", ")))
+
+    // Uppercase object = Rust type → use `::` (e.g. Instant::now())
+    let separator = if obj.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        "::"
+    } else {
+        "."
+    };
+    Ok(format!("{}{}{}({})", obj, separator, prop, arg_strs?.join(", ")))
 }

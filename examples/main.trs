@@ -1,0 +1,13 @@
+function fibonacci(n: number32): number32 {
+    if (n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+function main() {
+    console.log(fibonacci(0));
+    console.log(fibonacci(1));
+    console.log(fibonacci(5));
+    console.log(fibonacci(10));
+}

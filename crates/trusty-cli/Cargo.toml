@@ -19,3 +19,6 @@ anyhow.workspace = true
 
 # File system
 walkdir = "2.5"
+
+# Manifest parsing
+serde_json.workspace = true
