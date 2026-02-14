@@ -13,8 +13,15 @@ pub fn compile(source: &str) -> Result<String> {
 
 /// Transpile TRUST source and return Rust code + required external crates.
 pub fn compile_full(source: &str) -> Result<TranspileOutput> {
-    let ast = parser::parse_typescript(source)?;
+    let preprocessed = preprocess(source);
+    let ast = parser::parse_typescript(&preprocessed)?;
     transpiler::transpile_to_rust(&ast)
+}
+
+/// Rewrite TRUST-specific keywords to valid TypeScript before SWC parsing.
+fn preprocess(source: &str) -> String {
+    // `struct Foo {` → `interface Foo {` (struct is not valid TS)
+    source.replace("struct ", "interface ")
 }
 
 pub fn compile_formatted(source: &str) -> Result<String> {
@@ -56,6 +63,34 @@ mod tests {
         assert!(result.contains("return n;"));
         assert!(result.contains("fibonacci(n - 1)"));
         assert!(result.contains("fibonacci(n - 2)"));
+    }
+
+    #[test]
+    fn test_compile_struct() {
+        let trust_code = r#"
+            struct Point {
+                x: number32;
+                y: number32;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("struct Point"));
+        assert!(result.contains("x: i32"));
+        assert!(result.contains("y: i32"));
+        assert!(result.contains("#[derive(Debug, Clone)]"));
+    }
+
+    #[test]
+    fn test_compile_enum() {
+        let trust_code = r#"
+            enum Direction { North, South, East, West }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("enum Direction"));
+        assert!(result.contains("North"));
+        assert!(result.contains("West"));
     }
 
     #[test]

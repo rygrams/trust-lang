@@ -1,13 +1,15 @@
-use super::statements::*;
+use super::scope::Scope;
+use super::statements::transpile_block_stmt;
 use super::types::*;
 use anyhow::Result;
 use swc_ecma_ast::*;
 
 pub fn transpile_function(func: &FnDecl) -> Result<String> {
     let name = &func.ident.sym;
-    let params = transpile_params(&func.function.params)?;
+    let mut scope = Scope::new();
+    let params = transpile_params(&func.function.params, &mut scope)?;
     let return_type = transpile_return_type(&func.function.return_type)?;
-    let body = transpile_block(&func.function.body)?;
+    let body = transpile_block(&func.function.body, &mut scope)?;
 
     Ok(format!(
         "fn {}({}) -> {} {{\n{}\n}}",
@@ -15,7 +17,7 @@ pub fn transpile_function(func: &FnDecl) -> Result<String> {
     ))
 }
 
-fn transpile_params(params: &[Param]) -> Result<String> {
+fn transpile_params(params: &[Param], scope: &mut Scope) -> Result<String> {
     let param_strs: Vec<String> = params
         .iter()
         .map(|p| {
@@ -23,11 +25,11 @@ fn transpile_params(params: &[Param]) -> Result<String> {
                 Pat::Ident(ident) => ident.id.sym.to_string(),
                 _ => "unknown".to_string(),
             };
-
             let type_str = param_type_annotation(&p.pat)
                 .map(transpile_type_annotation)
                 .unwrap_or_else(|| "i32".to_string());
 
+            scope.insert(name.clone(), type_str.clone());
             format!("{}: {}", name, type_str)
         })
         .collect();
@@ -53,16 +55,9 @@ fn transpile_return_type(return_type: &Option<Box<TsTypeAnn>>) -> Result<String>
     }
 }
 
-fn transpile_block(block: &Option<BlockStmt>) -> Result<String> {
+fn transpile_block(block: &Option<BlockStmt>, scope: &mut Scope) -> Result<String> {
     if let Some(block) = block {
-        let mut statements = Vec::new();
-
-        for stmt in &block.stmts {
-            let rust_stmt = transpile_statement(stmt)?;
-            statements.push(format!("    {}", rust_stmt));
-        }
-
-        Ok(statements.join("\n"))
+        transpile_block_stmt(block, "    ", scope)
     } else {
         Ok(String::new())
     }

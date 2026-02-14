@@ -11,24 +11,43 @@ pub fn transpile_type(ts_type: &TsType) -> String {
         TsType::TsTypeRef(type_ref) => {
             if let TsEntityName::Ident(ident) = &type_ref.type_name {
                 let type_name = ident.sym.to_string();
+
+                // Resolve type arguments if present
+                let type_args: Vec<String> = type_ref
+                    .type_params
+                    .as_ref()
+                    .map(|params| params.params.iter().map(|p| transpile_type(p)).collect())
+                    .unwrap_or_default();
+
                 match type_name.as_str() {
-                    // Entiers
-                    "number8" => "i8",
-                    "number16" => "i16",
-                    "number32" => "i32",
-                    "number64" => "i64",
-                    // Flottants
-                    "float32" => "f32",
-                    "float64" => "f64",
-                    // Fallback
-                    "number" => "i32",
-                    _ => "i32",
+                    // Primitive integers
+                    "number8" => "i8".to_string(),
+                    "number16" => "i16".to_string(),
+                    "number32" => "i32".to_string(),
+                    "number64" => "i64".to_string(),
+                    // Floats
+                    "float32" => "f32".to_string(),
+                    "float64" => "f64".to_string(),
+                    // number fallback
+                    "number" => "i32".to_string(),
+                    // Pointer<T> → Rc<RefCell<T>>  (shared mutable reference)
+                    "Pointer" => {
+                        let inner = type_args.first().cloned().unwrap_or_else(|| "()".to_string());
+                        format!("Rc<RefCell<{}>>", inner)
+                    }
+                    // Pass-through generics: Box<T>, Vec<T>, Rc<T>, Arc<T>, …
+                    name if !type_args.is_empty() => {
+                        format!("{}<{}>", name, type_args.join(", "))
+                    }
+                    // Custom types (struct, enum) — pass-through as-is
+                    other => other.to_string(),
                 }
-                .to_string()
             } else {
                 "i32".to_string()
             }
         }
+        // T[] → Vec<T>
+        TsType::TsArrayType(arr) => format!("Vec<{}>", transpile_type(&arr.elem_type)),
         _ => "()".to_string(),
     }
 }
@@ -39,6 +58,5 @@ pub fn transpile_type_annotation(type_ann: &TsTypeAnn) -> String {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 }
