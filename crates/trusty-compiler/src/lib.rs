@@ -108,6 +108,24 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_arrays() {
+        let trust_code = r#"
+            function test(arr: number32[]): number32 {
+                let first = arr[0];
+                arr.push(42);
+                let n = arr.length;
+                return first;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("Vec<i32>"));
+        assert!(result.contains("arr[0 as usize]"));
+        assert!(result.contains("arr.push(42)"));
+        assert!(result.contains("arr.len()"));
+    }
+
+    #[test]
     fn test_compile_string_enum() {
         let trust_code = r#"
             enum Status { Active = "active", Inactive = "inactive", Pending = "pending" }

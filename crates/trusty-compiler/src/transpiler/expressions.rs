@@ -54,10 +54,22 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
 /// Field access: transparent borrow for Pointer<T> and Threaded<T>
 fn transpile_member_access(member: &MemberExpr, scope: &Scope) -> Result<String> {
     let obj_str = transpile_expression(&member.obj, scope)?;
+
+    // arr[i] → arr[i as usize]
+    if let MemberProp::Computed(computed) = &member.prop {
+        let idx = transpile_expression(&computed.expr, scope)?;
+        return Ok(format!("{}[{} as usize]", obj_str, idx));
+    }
+
     let prop = match &member.prop {
         MemberProp::Ident(ident) => ident.sym.to_string(),
         _ => "unknown".to_string(),
     };
+    // .length → .len()
+    if prop == "length" {
+        return Ok(format!("{}.len()", obj_str));
+    }
+
     if let Some(name) = ident_name(&member.obj) {
         if let Some(ty) = scope.get(&name) {
             if is_pointer(ty) {
@@ -201,6 +213,22 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         .iter()
         .map(|arg| transpile_expression(&arg.expr, scope))
         .collect();
+    let arg_strs = arg_strs?;
+
+    // Array methods
+    match prop.as_str() {
+        "push" => return Ok(format!("{}.push({})", obj, arg_strs.join(", "))),
+        "pop" => return Ok(format!("{}.pop()", obj)),
+        "len" => return Ok(format!("{}.len()", obj)),
+        "map" => return Ok(format!("{}.iter().map({}).collect::<Vec<_>>()", obj, arg_strs.join(", "))),
+        "filter" => return Ok(format!("{}.iter().filter({}).collect::<Vec<_>>()", obj, arg_strs.join(", "))),
+        "forEach" => return Ok(format!("{}.iter().for_each({})", obj, arg_strs.join(", "))),
+        "includes" => return Ok(format!("{}.contains(&{})", obj, arg_strs.join(", "))),
+        "join" => return Ok(format!("{}.join({})", obj, arg_strs.join(", "))),
+        "reverse" => return Ok(format!("{{ {}.reverse(); {} }}", obj, obj)),
+        "indexOf" => return Ok(format!("{}.iter().position(|r| r == &{}).map(|i| i as i32).unwrap_or(-1)", obj, arg_strs.join(", "))),
+        _ => {}
+    }
 
     // Uppercase object = Rust type → use `::` (e.g. Instant::now())
     let separator = if obj.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
@@ -208,5 +236,5 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
     } else {
         "."
     };
-    Ok(format!("{}{}{}({})", obj, separator, prop, arg_strs?.join(", ")))
+    Ok(format!("{}{}{}({})", obj, separator, prop, arg_strs.join(", ")))
 }
