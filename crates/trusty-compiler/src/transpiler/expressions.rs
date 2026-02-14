@@ -26,6 +26,7 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
             Ok(format!("{} {} {}", left, op, right))
         }
         Expr::Ident(ident) => Ok(ident.sym.to_string()),
+        Expr::This(_) => Ok("self".to_string()),
         Expr::Lit(lit) => match lit {
             Lit::Num(num) => Ok(num.value.to_string()),
             Lit::Str(s) => Ok(format!("\"{}\".to_string()", s.value.to_string_lossy())),
@@ -192,6 +193,9 @@ fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
             Expr::Member(member) => transpile_member_call(member, &call.args, scope),
             Expr::Ident(ident) => {
                 let func_name = ident.sym.to_string();
+                if let Some(cast_expr) = transpile_builtin_cast_call(&func_name, &call.args, scope)? {
+                    return Ok(cast_expr);
+                }
                 let args: Result<Vec<String>> = call
                     .args
                     .iter()
@@ -203,6 +207,62 @@ fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
         },
         _ => Ok("unknown_callee".to_string()),
     }
+}
+
+fn transpile_builtin_cast_call(func_name: &str, args: &[ExprOrSpread], scope: &Scope) -> Result<Option<String>> {
+    if args.len() != 1 {
+        return Ok(None);
+    }
+
+    let arg_expr = &args[0].expr;
+    let arg_rendered = transpile_expression(arg_expr, scope)?;
+    let arg_type = match &**arg_expr {
+        Expr::Ident(ident) => scope.get(&ident.sym.to_string()).cloned(),
+        _ => None,
+    };
+
+    if func_name == "String" {
+        let out = match arg_type.as_deref() {
+            Some("Rc<RefCell<String>>") => format!("{}.borrow().to_string()", arg_rendered),
+            Some("Arc<Mutex<String>>") => format!("{}.lock().unwrap().to_string()", arg_rendered),
+            Some(t) if t.starts_with("Rc<RefCell<") => format!("(*{}.borrow()).to_string()", arg_rendered),
+            Some(t) if t.starts_with("Arc<Mutex<") => format!("(*{}.lock().unwrap()).to_string()", arg_rendered),
+            _ => format!("({}).to_string()", arg_rendered),
+        };
+        return Ok(Some(out));
+    }
+
+    let rust_num = match func_name {
+        "number8" | "Number8" => Some("i8"),
+        "number16" | "Number16" => Some("i16"),
+        "number32" | "Number32" => Some("i32"),
+        "number64" | "Number64" => Some("i64"),
+        "float32" | "Float32" => Some("f32"),
+        "float64" | "Float64" => Some("f64"),
+        "number" | "Number" => Some("i32"),
+        _ => None,
+    };
+    let Some(rust_num) = rust_num else {
+        return Ok(None);
+    };
+
+    let value_expr = match arg_type.as_deref() {
+        Some("Rc<RefCell<String>>") => format!("{}.borrow()", arg_rendered),
+        Some("Arc<Mutex<String>>") => format!("{}.lock().unwrap()", arg_rendered),
+        Some(t) if t.starts_with("Rc<RefCell<") => format!("*{}.borrow()", arg_rendered),
+        Some(t) if t.starts_with("Arc<Mutex<") => format!("*{}.lock().unwrap()", arg_rendered),
+        _ => arg_rendered.clone(),
+    };
+
+    let string_like = matches!(arg_type.as_deref(), Some("String" | "Rc<RefCell<String>>" | "Arc<Mutex<String>>"))
+        || matches!(&**arg_expr, Expr::Lit(Lit::Str(_)) | Expr::Tpl(_));
+
+    let out = if string_like {
+        format!("({}).parse::<{}>().unwrap_or_default()", value_expr, rust_num)
+    } else {
+        format!("({}) as {}", value_expr, rust_num)
+    };
+    Ok(Some(out))
 }
 
 fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Scope) -> Result<String> {

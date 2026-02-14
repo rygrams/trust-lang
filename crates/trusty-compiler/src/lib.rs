@@ -20,7 +20,7 @@ pub fn compile_full(source: &str) -> Result<TranspileOutput> {
 
 /// Rewrite TRUST-specific keywords to valid TypeScript before SWC parsing.
 fn preprocess(source: &str) -> String {
-    source
+    rewrite_implements_blocks(source)
         .replace("struct ", "interface ")
         .lines()
         .map(|line| {
@@ -36,6 +36,48 @@ fn preprocess(source: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn rewrite_implements_blocks(source: &str) -> String {
+    let mut out = Vec::new();
+    let mut in_impl = false;
+    let mut brace_depth: i32 = 0;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        let indent = &line[..line.len() - trimmed.len()];
+
+        if !in_impl {
+            if let Some(rest) = trimmed.strip_prefix("implements ") {
+                if let Some((target, _)) = rest.split_once('{') {
+                    let target = target.trim();
+                    out.push(format!("{}class {} {{", indent, target));
+                    in_impl = true;
+                    brace_depth = 1;
+                    continue;
+                }
+            }
+            out.push(line.to_string());
+            continue;
+        }
+
+        let rewritten = if let Some(rest) = trimmed.strip_prefix("function ") {
+            format!("{}{}", indent, rest)
+        } else {
+            line.to_string()
+        };
+
+        brace_depth += rewritten.matches('{').count() as i32;
+        brace_depth -= rewritten.matches('}').count() as i32;
+        out.push(rewritten);
+
+        if brace_depth <= 0 {
+            in_impl = false;
+            brace_depth = 0;
+        }
+    }
+
+    out.join("\n")
 }
 
 pub fn compile_formatted(source: &str) -> Result<String> {
@@ -288,6 +330,35 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_builtin_cast_calls() {
+        let trust_code = r#"
+            function cast_all(a: number64, s: string, pn: Pointer<number32>, ps: Pointer<string>) {
+                let n1: number32 = Number32(a);
+                let n2: number32 = Number32(s);
+                let n3: number32 = Number32("42");
+                let n4: number32 = Number32(pn);
+                let n5: number32 = Number32(ps);
+                let f: float64 = Float64(a);
+                let t1: string = String(a);
+                let t2: string = String(ps);
+                let t3: string = String(pn);
+                return t1;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("(a) as i32"));
+        assert!(result.contains("(s).parse::<i32>().unwrap_or_default()"));
+        assert!(result.contains("\"42\".to_string()).parse::<i32>().unwrap_or_default()"));
+        assert!(result.contains("(*pn.borrow()) as i32"));
+        assert!(result.contains("(ps.borrow()).parse::<i32>().unwrap_or_default()"));
+        assert!(result.contains("(a) as f64"));
+        assert!(result.contains("(a).to_string()"));
+        assert!(result.contains("ps.borrow().to_string()"));
+        assert!(result.contains("(*pn.borrow()).to_string()"));
+    }
+
+    #[test]
     fn test_compile_import() {
         let trust_code = r#"
             import { Serialize, Deserialize } from "serde";
@@ -296,5 +367,31 @@ mod tests {
         let output = compile_full(trust_code).unwrap();
         assert!(output.rust_code.contains("use serde::{Serialize, Deserialize};"));
         assert!(output.required_crates.contains(&"serde".to_string()));
+    }
+
+    #[test]
+    fn test_compile_implements_block() {
+        let trust_code = r#"
+            struct User {
+                name: string;
+            }
+
+            implements User {
+                function greet(): string {
+                    return this.name.toUpperCase();
+                }
+
+                function rename(newName: string): void {
+                    this.name = newName;
+                }
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("impl User {"));
+        assert!(result.contains("fn greet(&self) -> String"));
+        assert!(result.contains("self.name.to_uppercase()"));
+        assert!(result.contains("fn rename(&mut self, newName: String) -> ()"));
+        assert!(result.contains("self.name = newName;"));
     }
 }

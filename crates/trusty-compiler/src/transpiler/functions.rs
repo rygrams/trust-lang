@@ -17,6 +17,56 @@ pub fn transpile_function(func: &FnDecl) -> Result<String> {
     ))
 }
 
+pub fn transpile_impl_block(class_decl: &ClassDecl) -> Result<Option<String>> {
+    let name = class_decl.ident.sym.to_string();
+    let mut methods = Vec::new();
+
+    for member in &class_decl.class.body {
+        if let ClassMember::Method(method) = member {
+            if let Some(code) = transpile_impl_method(method)? {
+                methods.push(code);
+            }
+        }
+    }
+
+    if methods.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(format!("impl {} {{\n{}\n}}", name, methods.join("\n\n"))))
+}
+
+fn transpile_impl_method(method: &ClassMethod) -> Result<Option<String>> {
+    if method.is_static {
+        return Ok(None);
+    }
+
+    let name = match &method.key {
+        PropName::Ident(ident) => ident.sym.to_string(),
+        _ => return Ok(None),
+    };
+
+    let mut scope = Scope::new();
+    let params = transpile_params(&method.function.params, &mut scope)?;
+    let return_type = transpile_return_type(&method.function.return_type)?;
+    let body = transpile_block(&method.function.body, &mut scope)?;
+    let self_param = if method_needs_mut_self(&method.function) {
+        "&mut self".to_string()
+    } else {
+        "&self".to_string()
+    };
+    let signature_params = if params.is_empty() {
+        self_param
+    } else {
+        format!("{}, {}", self_param, params)
+    };
+
+    Ok(Some(format!(
+        "    fn {}({}) -> {} {{\n{}\n    }}",
+        name, signature_params, return_type, body
+    )))
+}
+
 fn transpile_params(params: &[Param], scope: &mut Scope) -> Result<String> {
     let param_strs: Vec<String> = params
         .iter()
@@ -61,4 +111,72 @@ fn transpile_block(block: &Option<BlockStmt>, scope: &mut Scope) -> Result<Strin
     } else {
         Ok(String::new())
     }
+}
+
+fn method_needs_mut_self(function: &Function) -> bool {
+    function
+        .body
+        .as_ref()
+        .map(|body| body.stmts.iter().any(stmt_mutates_this))
+        .unwrap_or(false)
+}
+
+fn stmt_mutates_this(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Expr(expr_stmt) => expr_mutates_this(&expr_stmt.expr),
+        Stmt::Block(block) => block.stmts.iter().any(stmt_mutates_this),
+        Stmt::If(if_stmt) => {
+            expr_mutates_this(&if_stmt.test)
+                || stmt_mutates_this(&if_stmt.cons)
+                || if_stmt.alt.as_ref().map(|s| stmt_mutates_this(s)).unwrap_or(false)
+        }
+        Stmt::Decl(Decl::Var(var_decl)) => var_decl
+            .decls
+            .iter()
+            .filter_map(|d| d.init.as_ref())
+            .any(|expr| expr_mutates_this(expr)),
+        Stmt::Return(ret) => ret.arg.as_ref().map(|e| expr_mutates_this(e)).unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn expr_mutates_this(expr: &Expr) -> bool {
+    match expr {
+        Expr::Assign(assign) => {
+            assign_target_is_this_member(&assign.left) || expr_mutates_this(&assign.right)
+        }
+        Expr::Update(update) => expr_is_this_member(&update.arg),
+        Expr::Call(call) => {
+            call.args.iter().any(|a| expr_mutates_this(&a.expr))
+                || matches!(&call.callee, Callee::Expr(callee) if expr_mutates_this(callee))
+        }
+        Expr::Bin(bin) => expr_mutates_this(&bin.left) || expr_mutates_this(&bin.right),
+        Expr::Unary(unary) => expr_mutates_this(&unary.arg),
+        Expr::Cond(cond) => {
+            expr_mutates_this(&cond.test)
+                || expr_mutates_this(&cond.cons)
+                || expr_mutates_this(&cond.alt)
+        }
+        Expr::Paren(paren) => expr_mutates_this(&paren.expr),
+        Expr::Seq(seq) => seq.exprs.iter().any(|e| expr_mutates_this(e)),
+        _ => false,
+    }
+}
+
+fn assign_target_is_this_member(target: &AssignTarget) -> bool {
+    match target {
+        AssignTarget::Simple(SimpleAssignTarget::Member(member)) => this_member(member),
+        _ => false,
+    }
+}
+
+fn expr_is_this_member(expr: &Expr) -> bool {
+    match expr {
+        Expr::Member(member) => this_member(member),
+        _ => false,
+    }
+}
+
+fn this_member(member: &MemberExpr) -> bool {
+    matches!(&*member.obj, Expr::This(_))
 }

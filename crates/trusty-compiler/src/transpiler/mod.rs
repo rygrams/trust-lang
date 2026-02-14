@@ -19,6 +19,7 @@ pub struct TranspileOutput {
 pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
     let mut use_statements: Vec<String> = Vec::new();
     let mut type_decls: Vec<String> = Vec::new(); // structs + enums
+    let mut impl_blocks: Vec<String> = Vec::new();
     let mut function_code: Vec<String> = Vec::new();
     let mut required_crates: Vec<String> = Vec::new();
 
@@ -45,11 +46,22 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
                 let func_code = functions::transpile_function(func_decl)?;
                 function_code.push(func_code);
             }
+            ModuleItem::Stmt(Stmt::Decl(Decl::Class(class_decl))) => {
+                if let Some(impl_code) = functions::transpile_impl_block(class_decl)? {
+                    impl_blocks.push(impl_code);
+                }
+            }
             _ => {}
         }
     }
 
-    let all_code: String = use_statements.iter().chain(type_decls.iter()).chain(function_code.iter()).cloned().collect();
+    let all_code: String = use_statements
+        .iter()
+        .chain(type_decls.iter())
+        .chain(impl_blocks.iter())
+        .chain(function_code.iter())
+        .cloned()
+        .collect();
 
     // Auto-inject Rc/RefCell if Pointer<T> is used
     if all_code.contains("Rc<RefCell<") {
@@ -93,6 +105,10 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
     }
     for decl in &type_decls {
         rust_code.push_str(decl);
+        rust_code.push_str("\n\n");
+    }
+    for block in &impl_blocks {
+        rust_code.push_str(block);
         rust_code.push_str("\n\n");
     }
     for func in &function_code {
