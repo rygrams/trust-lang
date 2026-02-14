@@ -1,4 +1,5 @@
-use super::scope::{is_pointer, Scope};
+use super::scope::{is_pointer, is_threaded, Scope};
+use super::statements::transpile_block_stmt;
 use anyhow::Result;
 use swc_ecma_ast::*;
 
@@ -44,11 +45,13 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
         }
         Expr::Member(member) => transpile_member_access(member, scope),
         Expr::Assign(assign) => transpile_assign(assign, scope),
+        Expr::Arrow(arrow) => transpile_arrow(arrow, scope),
+        Expr::Paren(paren) => transpile_expression(&paren.expr, scope),
         _ => Ok("unknown_expr".to_string()),
     }
 }
 
-/// Field access: `p.name` → `p.borrow().name` if p is Pointer<T>
+/// Field access: transparent borrow for Pointer<T> and Threaded<T>
 fn transpile_member_access(member: &MemberExpr, scope: &Scope) -> Result<String> {
     let obj_str = transpile_expression(&member.obj, scope)?;
     let prop = match &member.prop {
@@ -56,14 +59,19 @@ fn transpile_member_access(member: &MemberExpr, scope: &Scope) -> Result<String>
         _ => "unknown".to_string(),
     };
     if let Some(name) = ident_name(&member.obj) {
-        if scope.get(&name).map(|t| is_pointer(t)).unwrap_or(false) {
-            return Ok(format!("{}.borrow().{}", obj_str, prop));
+        if let Some(ty) = scope.get(&name) {
+            if is_pointer(ty) {
+                return Ok(format!("{}.borrow().{}", obj_str, prop));
+            }
+            if is_threaded(ty) {
+                return Ok(format!("{}.lock().unwrap().{}", obj_str, prop));
+            }
         }
     }
     Ok(format!("{}.{}", obj_str, prop))
 }
 
-/// Assignment: `p.name = x` → `p.borrow_mut().name = x` if p is Pointer<T>
+/// Assignment: transparent borrow_mut for Pointer<T> and Threaded<T>
 fn transpile_assign(assign: &AssignExpr, scope: &Scope) -> Result<String> {
     let value = transpile_expression(&assign.right, scope)?;
     match &assign.left {
@@ -74,8 +82,13 @@ fn transpile_assign(assign: &AssignExpr, scope: &Scope) -> Result<String> {
                 _ => "unknown".to_string(),
             };
             if let Some(name) = ident_name(&member.obj) {
-                if scope.get(&name).map(|t| is_pointer(t)).unwrap_or(false) {
-                    return Ok(format!("{}.borrow_mut().{} = {}", obj_str, prop, value));
+                if let Some(ty) = scope.get(&name) {
+                    if is_pointer(ty) {
+                        return Ok(format!("{}.borrow_mut().{} = {}", obj_str, prop, value));
+                    }
+                    if is_threaded(ty) {
+                        return Ok(format!("{}.lock().unwrap().{} = {}", obj_str, prop, value));
+                    }
                 }
             }
             Ok(format!("{}.{} = {}", obj_str, prop, value))
@@ -84,6 +97,33 @@ fn transpile_assign(assign: &AssignExpr, scope: &Scope) -> Result<String> {
             Ok(format!("{} = {}", ident.id.sym, value))
         }
         _ => Ok("// assignment non supporté".to_string()),
+    }
+}
+
+/// Arrow function: `() => expr` or `(x) => expr` → `move || expr`
+fn transpile_arrow(arrow: &ArrowExpr, scope: &Scope) -> Result<String> {
+    let params: Vec<String> = arrow
+        .params
+        .iter()
+        .map(|p| match p {
+            Pat::Ident(ident) => ident.id.sym.to_string(),
+            _ => "_".to_string(),
+        })
+        .collect();
+
+    let body = match &*arrow.body {
+        BlockStmtOrExpr::Expr(expr) => transpile_expression(expr, scope)?,
+        BlockStmtOrExpr::BlockStmt(block) => {
+            let mut inner_scope = scope.clone();
+            let stmts = transpile_block_stmt(block, "    ", &mut inner_scope)?;
+            format!("{{\n{}\n}}", stmts)
+        }
+    };
+
+    if params.is_empty() {
+        Ok(format!("move || {}", body))
+    } else {
+        Ok(format!("move |{}| {}", params.join(", "), body))
     }
 }
 
@@ -139,6 +179,15 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         MemberProp::Ident(ident) => ident.sym.to_string(),
         _ => "unknown".to_string(),
     };
+
+    // Thread.run(fn) → std::thread::spawn(fn)
+    if obj == "Thread" && prop == "run" {
+        let arg_strs: Result<Vec<String>> = args
+            .iter()
+            .map(|arg| transpile_expression(&arg.expr, scope))
+            .collect();
+        return Ok(format!("std::thread::spawn({})", arg_strs?.join(", ")));
+    }
 
     if obj == "console" && prop == "log" {
         let arg_strs: Result<Vec<String>> = args

@@ -1,5 +1,5 @@
 use super::expressions::transpile_expression;
-use super::scope::{is_pointer, Scope};
+use super::scope::{is_pointer, is_threaded, Scope};
 use super::types::transpile_type_annotation;
 use anyhow::Result;
 use swc_ecma_ast::*;
@@ -45,17 +45,15 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
                 };
 
                 let declared_as_pointer = type_ann.as_ref().map(|t| is_pointer(t)).unwrap_or(false);
+                let declared_as_threaded = type_ann.as_ref().map(|t| is_threaded(t)).unwrap_or(false);
 
                 if let Some(init) = &decl.init {
-                    // `let p2 = p` where p is already a Pointer → Rc::clone(&p)
-                    let init_pointer_name = match &**init {
+                    // `let p2 = p` where p is already a Pointer or Threaded → clone
+                    let init_shared_name = match &**init {
                         Expr::Ident(ident) => {
                             let n = ident.sym.to_string();
-                            if scope.get(&n).map(|t| is_pointer(t)).unwrap_or(false) {
-                                Some(n)
-                            } else {
-                                None
-                            }
+                            let ty = scope.get(&n).map(|t| t.as_str()).unwrap_or("");
+                            if is_pointer(ty) || is_threaded(ty) { Some(n) } else { None }
                         }
                         _ => None,
                     };
@@ -65,11 +63,17 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
                         let expr_str = transpile_expression(init, scope)?;
                         scope.insert(name.clone(), type_ann.clone().unwrap());
                         format!("Rc::new(RefCell::new({}))", expr_str)
-                    } else if let Some(src) = &init_pointer_name {
-                        // `let p2 = p` → Rc::clone(&p), inherit type
-                        let pointer_type = scope.get(src).cloned().unwrap();
-                        scope.insert(name.clone(), pointer_type);
-                        format!("Rc::clone(&{})", src)
+                    } else if declared_as_threaded {
+                        // `let s: Threaded<T> = expr` → Arc::new(Mutex::new(expr))
+                        let expr_str = transpile_expression(init, scope)?;
+                        scope.insert(name.clone(), type_ann.clone().unwrap());
+                        format!("Arc::new(Mutex::new({}))", expr_str)
+                    } else if let Some(src) = &init_shared_name {
+                        // `let p2 = p` → clone, inherit type
+                        let shared_type = scope.get(src).cloned().unwrap();
+                        let clone_fn = if is_threaded(&shared_type) { "Arc::clone" } else { "Rc::clone" };
+                        scope.insert(name.clone(), shared_type);
+                        format!("{}(&{})", clone_fn, src)
                     } else {
                         transpile_expression(init, scope)?
                     };

@@ -20,8 +20,22 @@ pub fn compile_full(source: &str) -> Result<TranspileOutput> {
 
 /// Rewrite TRUST-specific keywords to valid TypeScript before SWC parsing.
 fn preprocess(source: &str) -> String {
-    // `struct Foo {` → `interface Foo {` (struct is not valid TS)
-    source.replace("struct ", "interface ")
+    source
+        .replace("struct ", "interface ")
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            // `wait expr;` → `(expr).join().unwrap();`
+            if let Some(rest) = trimmed.strip_prefix("wait ") {
+                let indent = &line[..line.len() - trimmed.len()];
+                let rest = rest.trim_end_matches(';').trim();
+                format!("{}({}).join().unwrap();", indent, rest)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn compile_formatted(source: &str) -> Result<String> {
@@ -91,6 +105,20 @@ mod tests {
         assert!(result.contains("enum Direction"));
         assert!(result.contains("North"));
         assert!(result.contains("West"));
+    }
+
+    #[test]
+    fn test_compile_string_enum() {
+        let trust_code = r#"
+            enum Status { Active = "active", Inactive = "inactive", Pending = "pending" }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("enum Status"));
+        assert!(result.contains("Active,"));
+        assert!(result.contains("fn as_str"));
+        assert!(result.contains("Status::Active => \"active\""));
+        assert!(result.contains("impl std::fmt::Display for Status"));
     }
 
     #[test]

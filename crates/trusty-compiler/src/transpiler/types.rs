@@ -30,10 +30,15 @@ pub fn transpile_type(ts_type: &TsType) -> String {
                     "float64" => "f64".to_string(),
                     // number fallback
                     "number" => "i32".to_string(),
-                    // Pointer<T> → Rc<RefCell<T>>  (shared mutable reference)
+                    // Pointer<T> → Rc<RefCell<T>>  (shared mutable reference, single-thread)
                     "Pointer" => {
                         let inner = type_args.first().cloned().unwrap_or_else(|| "()".to_string());
                         format!("Rc<RefCell<{}>>", inner)
+                    }
+                    // Threaded<T> → Arc<Mutex<T>>  (shared mutable reference, multi-thread)
+                    "Threaded" => {
+                        let inner = type_args.first().cloned().unwrap_or_else(|| "()".to_string());
+                        format!("Arc<Mutex<{}>>", inner)
                     }
                     // Pass-through generics: Box<T>, Vec<T>, Rc<T>, Arc<T>, …
                     name if !type_args.is_empty() => {

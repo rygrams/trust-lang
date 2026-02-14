@@ -49,15 +49,22 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
         }
     }
 
-    // Auto-inject Rc/RefCell if Pointer<T> is used anywhere
-    let needs_pointer = use_statements.iter().chain(type_decls.iter()).chain(function_code.iter())
-        .any(|s| s.contains("Rc<RefCell<"));
-    if needs_pointer {
+    let all_code: String = use_statements.iter().chain(type_decls.iter()).chain(function_code.iter()).cloned().collect();
+
+    // Auto-inject Rc/RefCell if Pointer<T> is used
+    if all_code.contains("Rc<RefCell<") {
         if !use_statements.contains(&"use std::rc::Rc;".to_string()) {
             use_statements.insert(0, "use std::rc::Rc;".to_string());
         }
         if !use_statements.contains(&"use std::cell::RefCell;".to_string()) {
             use_statements.insert(1, "use std::cell::RefCell;".to_string());
+        }
+    }
+
+    // Auto-inject Arc/Mutex if Threaded<T> is used
+    if all_code.contains("Arc<Mutex<") {
+        if !use_statements.contains(&"use std::sync::{Arc, Mutex};".to_string()) {
+            use_statements.insert(0, "use std::sync::{Arc, Mutex};".to_string());
         }
     }
 
