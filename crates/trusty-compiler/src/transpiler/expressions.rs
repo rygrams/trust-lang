@@ -77,6 +77,16 @@ fn transpile_member_access(member: &MemberExpr, scope: &Scope) -> Result<String>
     };
     // .length → .len()
     if prop == "length" {
+        if let Some(name) = ident_name(&member.obj) {
+            if let Some(ty) = scope.get(&name) {
+                if is_pointer(ty) {
+                    return Ok(format!("{}.borrow().len()", obj_str));
+                }
+                if is_threaded(ty) {
+                    return Ok(format!("{}.lock().unwrap().len()", obj_str));
+                }
+            }
+        }
         return Ok(format!("{}.len()", obj_str));
     }
 
@@ -224,6 +234,20 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         .map(|arg| transpile_expression(&arg.expr, scope))
         .collect();
     let arg_strs = arg_strs?;
+    let member_type = ident_name(&member.obj).and_then(|n| scope.get(&n).cloned());
+    let string_obj = match member_type.as_deref() {
+        Some("Rc<RefCell<String>>") => format!("{}.borrow()", obj),
+        Some("Arc<Mutex<String>>") => format!("{}.lock().unwrap()", obj),
+        _ => obj.clone(),
+    };
+    let is_string = match &*member.obj {
+        Expr::Lit(Lit::Str(_)) | Expr::Tpl(_) => true,
+        Expr::Ident(ident) => scope
+            .get(&ident.sym.to_string())
+            .map(|t| t == "String" || t == "Rc<RefCell<String>>" || t == "Arc<Mutex<String>>")
+            .unwrap_or(false),
+        _ => false,
+    };
 
     // Map methods
     match prop.as_str() {
@@ -242,6 +266,96 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         "delete" => return Ok(format!("{}.remove(&{})", obj, arg_strs.join(", "))),
         // Set methods
         "add" => return Ok(format!("{}.insert({})", obj, arg_strs.join(", "))),
+        _ => {}
+    }
+
+    // String methods
+    match prop.as_str() {
+        "toUpperCase" => return Ok(format!("{}.to_uppercase()", string_obj)),
+        "toLowerCase" => return Ok(format!("{}.to_lowercase()", string_obj)),
+        "startsWith" if arg_strs.len() == 1 => return Ok(format!("{}.starts_with(({}).as_str())", string_obj, arg_strs[0])),
+        "endsWith" if arg_strs.len() == 1 => return Ok(format!("{}.ends_with(({}).as_str())", string_obj, arg_strs[0])),
+        "includes" if is_string && arg_strs.len() == 1 => return Ok(format!("{}.contains(({}).as_str())", string_obj, arg_strs[0])),
+        "indexOf" if is_string && arg_strs.len() == 1 => {
+            return Ok(format!("{}.find(({}).as_str()).map(|i| i as i32).unwrap_or(-1)", string_obj, arg_strs[0]));
+        }
+        "lastIndexOf" if arg_strs.len() == 1 => {
+            return Ok(format!("{}.rfind(({}).as_str()).map(|i| i as i32).unwrap_or(-1)", string_obj, arg_strs[0]));
+        }
+        "replace" if arg_strs.len() == 2 => {
+            return Ok(format!("{}.replacen(({}).as_str(), ({}).as_str(), 1)", string_obj, arg_strs[0], arg_strs[1]));
+        }
+        "replaceAll" if arg_strs.len() == 2 => {
+            return Ok(format!("{}.replace(({}).as_str(), ({}).as_str())", string_obj, arg_strs[0], arg_strs[1]));
+        }
+        "trim" => return Ok(format!("{}.trim().to_string()", string_obj)),
+        "trimStart" => return Ok(format!("{}.trim_start().to_string()", string_obj)),
+        "trimEnd" => return Ok(format!("{}.trim_end().to_string()", string_obj)),
+        "repeat" if arg_strs.len() == 1 => return Ok(format!("{}.repeat(({}).max(0) as usize)", string_obj, arg_strs[0])),
+        "charAt" if arg_strs.len() == 1 => {
+            return Ok(format!(
+                "{{ let __trust_i = ({}).max(0) as usize; {}.chars().nth(__trust_i).map(|c| c.to_string()).unwrap_or_default() }}",
+                arg_strs[0], string_obj
+            ));
+        }
+        "at" if arg_strs.len() == 1 => {
+            return Ok(format!(
+                "{{ let __trust_chars: Vec<char> = {}.chars().collect(); let __trust_len = __trust_chars.len() as isize; let __trust_i = ({}) as isize; let __trust_pos = if __trust_i < 0 {{ __trust_len + __trust_i }} else {{ __trust_i }}; if __trust_pos < 0 || __trust_pos >= __trust_len {{ String::new() }} else {{ __trust_chars[__trust_pos as usize].to_string() }} }}",
+                string_obj, arg_strs[0]
+            ));
+        }
+        "split" if arg_strs.is_empty() => return Ok(format!("vec![({}).to_string()]", string_obj)),
+        "split" if arg_strs.len() == 1 => {
+            return Ok(format!(
+                "{}.split(({}).as_str()).map(|s| s.to_string()).collect::<Vec<String>>()",
+                string_obj, arg_strs[0]
+            ));
+        }
+        "slice" if arg_strs.len() == 1 => {
+            return Ok(format!(
+                "{{ let __trust_chars: Vec<char> = {}.chars().collect(); let __trust_len = __trust_chars.len() as isize; let __trust_start = ({}) as isize; let __trust_from = if __trust_start < 0 {{ (__trust_len + __trust_start).max(0) }} else {{ __trust_start.min(__trust_len) }} as usize; __trust_chars[__trust_from..].iter().collect::<String>() }}",
+                string_obj, arg_strs[0]
+            ));
+        }
+        "slice" if arg_strs.len() == 2 => {
+            return Ok(format!(
+                "{{ let __trust_chars: Vec<char> = {}.chars().collect(); let __trust_len = __trust_chars.len() as isize; let __trust_start = ({}) as isize; let __trust_end = ({}) as isize; let __trust_from = if __trust_start < 0 {{ (__trust_len + __trust_start).max(0) }} else {{ __trust_start.min(__trust_len) }} as usize; let __trust_to = if __trust_end < 0 {{ (__trust_len + __trust_end).max(0) }} else {{ __trust_end.min(__trust_len) }} as usize; if __trust_to <= __trust_from {{ String::new() }} else {{ __trust_chars[__trust_from..__trust_to].iter().collect::<String>() }} }}",
+                string_obj, arg_strs[0], arg_strs[1]
+            ));
+        }
+        "substring" if arg_strs.len() == 1 => {
+            return Ok(format!(
+                "{{ let __trust_chars: Vec<char> = {}.chars().collect(); let __trust_len = __trust_chars.len(); let __trust_start = ({}).max(0) as usize; __trust_chars[__trust_start.min(__trust_len)..].iter().collect::<String>() }}",
+                string_obj, arg_strs[0]
+            ));
+        }
+        "substring" if arg_strs.len() == 2 => {
+            return Ok(format!(
+                "{{ let __trust_chars: Vec<char> = {}.chars().collect(); let __trust_len = __trust_chars.len(); let __trust_start = ({}).max(0) as usize; let __trust_end = ({}).max(0) as usize; let (__trust_from, __trust_to) = if __trust_start <= __trust_end {{ (__trust_start, __trust_end) }} else {{ (__trust_end, __trust_start) }}; __trust_chars[__trust_from.min(__trust_len)..__trust_to.min(__trust_len)].iter().collect::<String>() }}",
+                string_obj, arg_strs[0], arg_strs[1]
+            ));
+        }
+        "substr" if arg_strs.len() == 1 => {
+            return Ok(format!(
+                "{{ let __trust_chars: Vec<char> = {}.chars().collect(); let __trust_len = __trust_chars.len() as isize; let __trust_start = ({}) as isize; let __trust_from = if __trust_start < 0 {{ (__trust_len + __trust_start).max(0) }} else {{ __trust_start.min(__trust_len) }} as usize; __trust_chars[__trust_from..].iter().collect::<String>() }}",
+                string_obj, arg_strs[0]
+            ));
+        }
+        "substr" if arg_strs.len() == 2 => {
+            return Ok(format!(
+                "{{ let __trust_chars: Vec<char> = {}.chars().collect(); let __trust_len = __trust_chars.len() as isize; let __trust_start = ({}) as isize; let __trust_count = ({}).max(0) as usize; let __trust_from = if __trust_start < 0 {{ (__trust_len + __trust_start).max(0) }} else {{ __trust_start.min(__trust_len) }} as usize; let __trust_to = (__trust_from + __trust_count).min(__trust_len as usize); __trust_chars[__trust_from..__trust_to].iter().collect::<String>() }}",
+                string_obj, arg_strs[0], arg_strs[1]
+            ));
+        }
+        "concat" => {
+            let mut fmt = String::from("{}");
+            for _ in &arg_strs {
+                fmt.push_str("{}");
+            }
+            let mut fmt_args = vec![format!("({}).to_string()", string_obj)];
+            fmt_args.extend(arg_strs.iter().cloned());
+            return Ok(format!("format!(\"{}\", {})", fmt, fmt_args.join(", ")));
+        }
         _ => {}
     }
 

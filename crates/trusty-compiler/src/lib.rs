@@ -195,6 +195,99 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_string_case_methods() {
+        let trust_code = r#"
+            function normalize(name: string): string {
+                let upper = name.toUpperCase();
+                let lower = name.toLowerCase();
+                return upper + lower;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("name.to_uppercase()"));
+        assert!(result.contains("name.to_lowercase()"));
+    }
+
+    #[test]
+    fn test_compile_string_substring() {
+        let trust_code = r#"
+            function cut(name: string): string {
+                let a = name.substring(1);
+                let b = name.substring(1, 3);
+                return a + b;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("name.chars().collect()"));
+        assert!(result.contains("__trust_start"));
+        assert!(result.contains("__trust_end"));
+        assert!(result.contains("collect::<String>()"));
+    }
+
+    #[test]
+    fn test_compile_string_methods_extended() {
+        let trust_code = r#"
+            function normalize(name: string) {
+                let starts = name.startsWith("A");
+                let ends = name.endsWith("z");
+                let hasX = name.includes("x");
+                let idx = name.indexOf("x");
+                let last = name.lastIndexOf("x");
+                let one = name.charAt(0);
+                let at = name.at(0);
+                let sl = name.slice(1, 3);
+                let sub = name.substr(1, 2);
+                let replaced = name.replace("a", "b");
+                let replacedAll = name.replaceAll("a", "b");
+                let trimmed = name.trim();
+                let left = name.trimStart();
+                let right = name.trimEnd();
+                let repeated = name.repeat(2);
+                let parts = name.split(",");
+                let full = name.concat("!", "?");
+                return name.toUpperCase() + name.toLowerCase() + one + at + sl + sub + replaced + replacedAll + trimmed + left + right + repeated + full;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("name.starts_with((\"A\".to_string()).as_str())"));
+        assert!(result.contains("name.ends_with((\"z\".to_string()).as_str())"));
+        assert!(result.contains("name.contains((\"x\".to_string()).as_str())"));
+        assert!(result.contains("name.find((\"x\".to_string()).as_str()).map(|i| i as i32).unwrap_or(-1)"));
+        assert!(result.contains("name.rfind((\"x\".to_string()).as_str()).map(|i| i as i32).unwrap_or(-1)"));
+        assert!(result.contains("name.replacen((\"a\".to_string()).as_str(), (\"b\".to_string()).as_str(), 1)"));
+        assert!(result.contains("name.replace((\"a\".to_string()).as_str(), (\"b\".to_string()).as_str())"));
+        assert!(result.contains("name.trim().to_string()"));
+        assert!(result.contains("name.trim_start().to_string()"));
+        assert!(result.contains("name.trim_end().to_string()"));
+        assert!(result.contains("name.repeat((2).max(0) as usize)"));
+        assert!(result.contains("name.split((\",\".to_string()).as_str()).map(|s| s.to_string()).collect::<Vec<String>>()"));
+        assert!(result.contains("name.to_uppercase()"));
+        assert!(result.contains("name.to_lowercase()"));
+    }
+
+    #[test]
+    fn test_compile_pointer_string_methods() {
+        let trust_code = r#"
+            function test(p: Pointer<string>): string {
+                let upper = p.toUpperCase();
+                let sub = p.substring(1, 3);
+                let has = p.includes("x");
+                let len = p.length;
+                return upper + sub;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("p.borrow().to_uppercase()"));
+        assert!(result.contains("p.borrow().chars().collect()"));
+        assert!(result.contains("p.borrow().contains((\"x\".to_string()).as_str())"));
+        assert!(result.contains("p.borrow().len()"));
+    }
+
+    #[test]
     fn test_compile_import() {
         let trust_code = r#"
             import { Serialize, Deserialize } from "serde";
