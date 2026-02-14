@@ -126,6 +126,61 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_map() {
+        let trust_code = r#"
+            function test() {
+                let m: Map<string, number32> = new Map();
+                m.set("key", 1);
+                let v = m.get("key");
+                let exists = m.has("key");
+                m.delete("key");
+            }
+        "#;
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("HashMap<String, i32>"));
+        assert!(result.contains("HashMap::new()"));
+        assert!(result.contains("m.insert("));
+        assert!(result.contains("m.get(&"));
+        assert!(result.contains("m.contains_key(&"));
+        assert!(result.contains("m.remove(&"));
+        assert!(result.contains("use std::collections::HashMap;"));
+    }
+
+    #[test]
+    fn test_compile_set() {
+        let trust_code = r#"
+            function test() {
+                let s: Set<string> = new Set();
+                s.add("hello");
+                let exists = s.has("hello");
+                s.delete("hello");
+            }
+        "#;
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("HashSet<String>"));
+        assert!(result.contains("HashSet::new()"));
+        assert!(result.contains("s.insert("));
+        assert!(result.contains("s.contains(&"));
+        assert!(result.contains("s.remove(&"));
+        assert!(result.contains("use std::collections::HashSet;"));
+    }
+
+    #[test]
+    fn test_compile_throw() {
+        let trust_code = r#"
+            function divide(a: number32, b: number32): Result<number32, string> {
+                if (b == 0) {
+                    throw new Error("division by zero");
+                }
+                return ok(a / b);
+            }
+        "#;
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("return Err("));
+        assert!(result.contains("division by zero"));
+    }
+
+    #[test]
     fn test_compile_string_enum() {
         let trust_code = r#"
             enum Status { Active = "active", Inactive = "inactive", Pending = "pending" }

@@ -68,6 +68,20 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
         }
     }
 
+    // Auto-inject HashMap if Map<> is used
+    if all_code.contains("HashMap<") || all_code.contains("HashMap::new()") {
+        if !use_statements.contains(&"use std::collections::HashMap;".to_string()) {
+            use_statements.insert(0, "use std::collections::HashMap;".to_string());
+        }
+    }
+
+    // Auto-inject HashSet if Set<> is used
+    if all_code.contains("HashSet<") || all_code.contains("HashSet::new()") {
+        if !use_statements.contains(&"use std::collections::HashSet;".to_string()) {
+            use_statements.insert(0, "use std::collections::HashSet;".to_string());
+        }
+    }
+
     let mut rust_code = String::new();
 
     for stmt in &use_statements {

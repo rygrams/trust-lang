@@ -47,6 +47,16 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
         Expr::Assign(assign) => transpile_assign(assign, scope),
         Expr::Arrow(arrow) => transpile_arrow(arrow, scope),
         Expr::Paren(paren) => transpile_expression(&paren.expr, scope),
+        Expr::New(new_expr) => {
+            if let Expr::Ident(ident) = &*new_expr.callee {
+                match ident.sym.as_ref() {
+                    "Map" => return Ok("HashMap::new()".to_string()),
+                    "Set" => return Ok("HashSet::new()".to_string()),
+                    _ => {}
+                }
+            }
+            Ok("unknown_new".to_string())
+        }
         _ => Ok("unknown_expr".to_string()),
     }
 }
@@ -214,6 +224,26 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         .map(|arg| transpile_expression(&arg.expr, scope))
         .collect();
     let arg_strs = arg_strs?;
+
+    // Map methods
+    match prop.as_str() {
+        "set" if arg_strs.len() == 2 => return Ok(format!("{}.insert({}, {})", obj, arg_strs[0], arg_strs[1])),
+        "get" => return Ok(format!("{}.get(&{})", obj, arg_strs.join(", "))),
+        "has" if arg_strs.len() == 1 => {
+            let is_set = ident_name(&member.obj)
+                .and_then(|n| scope.get(&n))
+                .map(|t| t.starts_with("HashSet"))
+                .unwrap_or(false);
+            if is_set {
+                return Ok(format!("{}.contains(&{})", obj, arg_strs[0]));
+            }
+            return Ok(format!("{}.contains_key(&{})", obj, arg_strs[0]));
+        }
+        "delete" => return Ok(format!("{}.remove(&{})", obj, arg_strs.join(", "))),
+        // Set methods
+        "add" => return Ok(format!("{}.insert({})", obj, arg_strs.join(", "))),
+        _ => {}
+    }
 
     // Array methods
     match prop.as_str() {

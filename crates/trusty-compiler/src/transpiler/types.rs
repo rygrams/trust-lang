@@ -40,6 +40,15 @@ pub fn transpile_type(ts_type: &TsType) -> String {
                         let inner = type_args.first().cloned().unwrap_or_else(|| "()".to_string());
                         format!("Arc<Mutex<{}>>", inner)
                     }
+                    // Map<K, V> → HashMap<K, V>
+                    "Map" => {
+                        format!("HashMap<{}>", type_args.join(", "))
+                    }
+                    // Set<T> → HashSet<T>
+                    "Set" => {
+                        let inner = type_args.first().cloned().unwrap_or_else(|| "()".to_string());
+                        format!("HashSet<{}>", inner)
+                    }
                     // Pass-through generics: Box<T>, Vec<T>, Rc<T>, Arc<T>, …
                     name if !type_args.is_empty() => {
                         format!("{}<{}>", name, type_args.join(", "))

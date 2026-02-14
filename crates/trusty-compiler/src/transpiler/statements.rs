@@ -75,7 +75,12 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
                         scope.insert(name.clone(), shared_type);
                         format!("{}(&{})", clone_fn, src)
                     } else {
-                        transpile_expression(init, scope)?
+                        let expr_str = transpile_expression(init, scope)?;
+                        // Register all typed variables in scope for method dispatch
+                        if let Some(ty) = &type_ann {
+                            scope.insert(name.clone(), ty.clone());
+                        }
+                        expr_str
                     };
 
                     match &type_ann {
@@ -85,6 +90,24 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
                 }
             }
             Ok(parts.join("\n"))
+        }
+        Stmt::Throw(throw_stmt) => {
+            // throw new Error("msg") → return Err("msg".to_string())
+            let msg = match &*throw_stmt.arg {
+                Expr::New(new_expr) => {
+                    if let Some(args) = &new_expr.args {
+                        if let Some(first) = args.first() {
+                            transpile_expression(&first.expr, scope)?
+                        } else {
+                            "\"error\".to_string()".to_string()
+                        }
+                    } else {
+                        "\"error\".to_string()".to_string()
+                    }
+                }
+                other => transpile_expression(other, scope)?,
+            };
+            Ok(format!("return Err({});", msg))
         }
         _ => Ok("// Statement non supporté".to_string()),
     }
