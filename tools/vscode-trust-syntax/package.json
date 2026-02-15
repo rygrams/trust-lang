@@ -1,17 +1,113 @@
 {
   "name": "trust-lang-syntax",
   "displayName": "TRUST Language Syntax",
-  "description": "Syntax highlighting for TRUST (.trs) files.",
+  "description": "Syntax highlighting + LSP integration for TRUST (.trs) files.",
   "version": "0.0.1",
   "publisher": "trust-lang",
   "license": "MIT",
+  "main": "./extension.js",
   "engines": {
     "vscode": "^1.80.0"
   },
+  "activationEvents": [
+    "onLanguage:trust",
+    "onCommand:trust.restartLanguageServer",
+    "onCommand:trust.setupWorkspace"
+  ],
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters"
   ],
   "contributes": {
+    "commands": [
+      {
+        "command": "trust.restartLanguageServer",
+        "title": "TRUST: Restart Language Server"
+      },
+      {
+        "command": "trust.setupWorkspace",
+        "title": "TRUST: Setup Workspace (LSP/Format/Lint)"
+      }
+    ],
+    "configuration": {
+      "title": "TRUST",
+      "properties": {
+        "trust.languageServer.command": {
+          "type": "string",
+          "default": "cargo",
+          "description": "Command used to start the TRUST language server."
+        },
+        "trust.languageServer.args": {
+          "type": "array",
+          "default": [
+            "run",
+            "--manifest-path",
+            "crates/trusty-lsp/Cargo.toml",
+            "--",
+            "--stdio"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Arguments passed to the language server command."
+        },
+        "trust.languageServer.cwd": {
+          "type": "string",
+          "default": "",
+          "description": "Optional working directory for the language server command. Empty means current workspace root."
+        },
+        "trust.format.command": {
+          "type": "string",
+          "default": "cargo",
+          "description": "Command used by the TRUST formatter provider."
+        },
+        "trust.format.args": {
+          "type": "array",
+          "default": [
+            "run",
+            "--manifest-path",
+            "crates/trusty-cli/Cargo.toml",
+            "--",
+            "format",
+            "${file}"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Arguments passed to the formatter command. Use ${file} placeholder."
+        },
+        "trust.lint.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run TRUST lint/check command on file save."
+        },
+        "trust.lint.command": {
+          "type": "string",
+          "default": "cargo",
+          "description": "Command used for lint/check on save."
+        },
+        "trust.lint.args": {
+          "type": "array",
+          "default": [
+            "run",
+            "--manifest-path",
+            "crates/trusty-cli/Cargo.toml",
+            "--",
+            "check",
+            "${file}"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Arguments passed to lint/check command. Use ${file} placeholder."
+        },
+        "trust.setup.writeWorkspaceSettingsOnActivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically create/update .vscode/settings.json for TRUST defaults when extension activates."
+        }
+      }
+    },
     "languages": [
       {
         "id": "trust",
@@ -37,6 +133,14 @@
         "language": "trust",
         "path": "./snippets/trust.code-snippets"
       }
-    ]
+    ],
+    "configurationDefaults": {
+      "[trust]": {
+        "editor.formatOnSave": true
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

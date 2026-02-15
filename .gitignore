@@ -24,3 +24,4 @@ Thumbs.db
 #! Cargo.lock
 target/
 build/
+node_modules/

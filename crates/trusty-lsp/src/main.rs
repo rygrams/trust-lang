@@ -6,6 +6,22 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+const TRUSTY_MODULES: &[&str] = &["trusty:time", "trusty:math", "trusty:rand"];
+
+fn trusty_module_exports(module_path: &str) -> &'static [&'static str] {
+    match module_path {
+        "trusty:math" => &[
+            "PI", "E", "sqrt", "pow", "log", "abs", "min", "max", "clamp", "sin", "cos", "tan", "asin", "acos", "atan",
+        ],
+        "trusty:time" => &[
+            "Instant", "Duration", "sleep", "Date", "Time", "DateTime", "SystemTime", "compare", "addSeconds", "addMinutes", "addDays",
+            "addMonths", "addYears", "subSeconds", "subMinutes", "subDays", "subMonths", "subYears",
+        ],
+        "trusty:rand" => &["random", "randomInt", "randomFloat", "bernoulli", "weightedIndex", "chooseOne", "shuffle"],
+        _ => &[],
+    }
+}
+
 struct Backend {
     client: Client,
     docs: Arc<RwLock<HashMap<Url, String>>>,
@@ -78,6 +94,235 @@ impl Backend {
         out
     }
 
+    fn line_prefix(line: &str, col: usize) -> &str {
+        let end = col.min(line.len());
+        &line[..end]
+    }
+
+    fn completion_for_import_path(line: &str, col: usize) -> Option<Vec<CompletionItem>> {
+        let prefix = Self::line_prefix(line, col);
+        let from_idx = prefix.find("from \"")?;
+        let module_prefix = &prefix[from_idx + "from \"".len()..];
+        if module_prefix.contains('"') {
+            return None;
+        }
+        if !("trusty:".starts_with(module_prefix) || module_prefix.starts_with("trusty:")) {
+            return None;
+        }
+
+        let mut out = Vec::new();
+        for m in TRUSTY_MODULES {
+            out.push(CompletionItem {
+                label: (*m).to_string(),
+                kind: Some(CompletionItemKind::MODULE),
+                detail: Some("TRUST stdlib module".to_string()),
+                ..CompletionItem::default()
+            });
+        }
+        Some(out)
+    }
+
+    fn parse_trusty_import_symbols_line(line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("import {") {
+            return None;
+        }
+        let from_idx = trimmed.find(" from ")?;
+        let after_from = trimmed[from_idx + " from ".len()..].trim();
+        let quote = after_from.chars().next()?;
+        if quote != '"' && quote != '\'' {
+            return None;
+        }
+        let rest = &after_from[1..];
+        let end = rest.find(quote)?;
+        let path = &rest[..end];
+        if path.starts_with("trusty:") {
+            Some(path.to_string())
+        } else {
+            None
+        }
+    }
+
+    fn completion_for_import_symbols(line: &str, col: usize) -> Option<Vec<CompletionItem>> {
+        let prefix = Self::line_prefix(line, col);
+        if !prefix.contains("import {") {
+            return None;
+        }
+        let open = prefix.find('{')?;
+        let close = prefix.find('}').unwrap_or(prefix.len());
+        if col < open + 1 || col > close {
+            return None;
+        }
+        let module = Self::parse_trusty_import_symbols_line(line)?;
+        let exports = trusty_module_exports(&module);
+        if exports.is_empty() {
+            return None;
+        }
+
+        let mut out = Vec::new();
+        for sym in exports {
+            out.push(CompletionItem {
+                label: (*sym).to_string(),
+                kind: Some(CompletionItemKind::VARIABLE),
+                detail: Some(format!("export from {}", module)),
+                ..CompletionItem::default()
+            });
+        }
+        Some(out)
+    }
+
+    fn collect_struct_fields(text: &str) -> HashMap<String, Vec<String>> {
+        let mut out: HashMap<String, Vec<String>> = HashMap::new();
+        let lines: Vec<&str> = text.lines().collect();
+        let mut i = 0usize;
+        while i < lines.len() {
+            let trimmed = lines[i].trim();
+            let mut rest = trimmed.strip_prefix("struct ");
+            if rest.is_none() {
+                rest = trimmed.strip_prefix("export struct ");
+            }
+            let Some(rest) = rest else {
+                i += 1;
+                continue;
+            };
+            let Some(name) = rest.split_whitespace().next() else {
+                i += 1;
+                continue;
+            };
+            let type_name = name.trim_end_matches('{').trim().to_string();
+            let mut fields = Vec::new();
+            i += 1;
+            while i < lines.len() {
+                let f = lines[i].trim();
+                if f.starts_with('}') {
+                    break;
+                }
+                if let Some(colon) = f.find(':') {
+                    let field = f[..colon].trim().trim_end_matches(';').to_string();
+                    if !field.is_empty() {
+                        fields.push(field);
+                    }
+                }
+                i += 1;
+            }
+            if !type_name.is_empty() && !fields.is_empty() {
+                out.insert(type_name, fields);
+            }
+            i += 1;
+        }
+        out
+    }
+
+    fn is_ident(ch: char) -> bool {
+        ch.is_ascii_alphanumeric() || ch == '_'
+    }
+
+    fn parse_var_decl_type(trimmed: &str) -> Option<(String, String)> {
+        let start = if let Some(r) = trimmed.strip_prefix("val ") {
+            r
+        } else if let Some(r) = trimmed.strip_prefix("var ") {
+            r
+        } else if let Some(r) = trimmed.strip_prefix("const ") {
+            r
+        } else {
+            return None;
+        };
+
+        let mut chars = start.chars().peekable();
+        let mut name = String::new();
+        while let Some(&c) = chars.peek() {
+            if Self::is_ident(c) {
+                name.push(c);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        let rest_owned = chars.collect::<String>();
+        let rest = rest_owned.trim_start();
+        if name.is_empty() {
+            return None;
+        }
+
+        if let Some(after_colon) = rest.strip_prefix(':') {
+            let after_colon = after_colon.trim_start();
+            let ty: String = after_colon
+                .chars()
+                .take_while(|c| Self::is_ident(*c))
+                .collect();
+            if !ty.is_empty() {
+                return Some((name, ty));
+            }
+        }
+
+        if let Some(eq_idx) = rest.find('=') {
+            let rhs = rest[eq_idx + 1..].trim_start();
+            let ctor: String = rhs.chars().take_while(|c| Self::is_ident(*c)).collect();
+            if ctor
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false)
+            {
+                return Some((name, ctor));
+            }
+        }
+        None
+    }
+
+    fn collect_var_types_until(text: &str, max_line_inclusive: usize) -> HashMap<String, String> {
+        let mut out = HashMap::new();
+        for (i, line) in text.lines().enumerate() {
+            if i > max_line_inclusive {
+                break;
+            }
+            if let Some((name, ty)) = Self::parse_var_decl_type(line.trim()) {
+                out.insert(name, ty);
+            }
+        }
+        out
+    }
+
+    fn member_target_before_cursor(line: &str, col: usize) -> Option<String> {
+        let prefix = Self::line_prefix(line, col);
+        let dot_idx = prefix.rfind('.')?;
+        let before_dot = &prefix[..dot_idx];
+        let mut name = String::new();
+        for c in before_dot.chars().rev() {
+            if Self::is_ident(c) {
+                name.push(c);
+            } else {
+                break;
+            }
+        }
+        if name.is_empty() {
+            return None;
+        }
+        Some(name.chars().rev().collect())
+    }
+
+    fn completion_for_member_access(text: &str, line: usize, col: usize) -> Option<Vec<CompletionItem>> {
+        let lines: Vec<&str> = text.lines().collect();
+        let current = lines.get(line)?;
+        let target = Self::member_target_before_cursor(current, col)?;
+
+        let struct_fields = Self::collect_struct_fields(text);
+        let var_types = Self::collect_var_types_until(text, line);
+        let ty = var_types.get(&target)?;
+        let fields = struct_fields.get(ty)?;
+
+        let mut out = Vec::new();
+        for f in fields {
+            out.push(CompletionItem {
+                label: f.clone(),
+                kind: Some(CompletionItemKind::FIELD),
+                detail: Some(format!("field of {}", ty)),
+                ..CompletionItem::default()
+            });
+        }
+        Some(out)
+    }
+
     fn hover_doc(word: &str) -> Option<&'static str> {
         match word {
             "val" => Some("`val`: immutable local variable."),
@@ -107,7 +352,10 @@ impl LanguageServer for Backend {
             }),
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-                completion_provider: Some(CompletionOptions::default()),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![".".to_string(), "\"".to_string(), "{".to_string(), ",".to_string()]),
+                    ..CompletionOptions::default()
+                }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
@@ -147,7 +395,31 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let text_doc = &params.text_document_position.text_document;
+        let position = params.text_document_position.position;
+
+        let docs = self.docs.read().await;
+        let Some(text) = docs.get(&text_doc.uri) else {
+            return Ok(Some(CompletionResponse::Array(Self::completion_items())));
+        };
+
+        let lines: Vec<&str> = text.lines().collect();
+        let Some(line) = lines.get(position.line as usize) else {
+            return Ok(Some(CompletionResponse::Array(Self::completion_items())));
+        };
+        let col = position.character as usize;
+
+        if let Some(items) = Self::completion_for_member_access(text, position.line as usize, col) {
+            return Ok(Some(CompletionResponse::Array(items)));
+        }
+        if let Some(items) = Self::completion_for_import_symbols(line, col) {
+            return Ok(Some(CompletionResponse::Array(items)));
+        }
+        if let Some(items) = Self::completion_for_import_path(line, col) {
+            return Ok(Some(CompletionResponse::Array(items)));
+        }
+
         Ok(Some(CompletionResponse::Array(Self::completion_items())))
     }
 
