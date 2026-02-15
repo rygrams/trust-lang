@@ -55,6 +55,13 @@ Compile and run:
 trusty run hello.trs
 ```
 
+Format source:
+
+```bash
+trusty format hello.trs
+trusty format hello.trs --check
+```
+
 Struct example:
 
 ```bash

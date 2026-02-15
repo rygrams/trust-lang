@@ -3,7 +3,7 @@ pub mod parser;
 pub mod stdlib;
 pub mod transpiler;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 pub use transpiler::TranspileOutput;
 
@@ -14,6 +14,7 @@ pub fn compile(source: &str) -> Result<String> {
 
 /// Transpile TRUST source and return Rust code + required external crates.
 pub fn compile_full(source: &str) -> Result<TranspileOutput> {
+    reject_unsupported_while(source)?;
     warn_on_deprecated_number_alias(source);
     let preprocessed = preprocess(source);
     let ast = parser::parse_typescript(&preprocessed)?;
@@ -21,15 +22,100 @@ pub fn compile_full(source: &str) -> Result<TranspileOutput> {
 }
 
 fn warn_on_deprecated_number_alias(source: &str) {
-    if !contains_identifier(source, "number") {
+    if !contains_identifier_in_code(source, "number") {
         return;
     }
     eprintln!("⚠️  Deprecated type alias `number` detected. Prefer `int` (or `int32`) / `float`.");
 }
 
-fn contains_identifier(source: &str, needle: &str) -> bool {
+fn reject_unsupported_while(source: &str) -> Result<()> {
+    if contains_identifier_in_code(source, "while") {
+        bail!("`while` is not supported in TRUST. Use `loop (condition) {{ ... }}` instead.");
+    }
+    Ok(())
+}
+
+fn contains_identifier_in_code(source: &str, needle: &str) -> bool {
     let mut ident = String::new();
-    for ch in source.chars() {
+    let chars: Vec<char> = source.chars().collect();
+    let mut i = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_template = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+        let next = if i + 1 < chars.len() {
+            Some(chars[i + 1])
+        } else {
+            None
+        };
+
+        if in_single {
+            if ch == '\\' && next.is_some() {
+                i += 2;
+                continue;
+            }
+            if ch == '\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if ch == '\\' && next.is_some() {
+                i += 2;
+                continue;
+            }
+            if ch == '"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_template {
+            if ch == '\\' && next.is_some() {
+                i += 2;
+                continue;
+            }
+            if ch == '`' {
+                in_template = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if ch == '/' && next == Some('/') {
+            i += 2;
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if ch == '/' && next == Some('*') {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+        if ch == '\'' {
+            in_single = true;
+            i += 1;
+            continue;
+        }
+        if ch == '"' {
+            in_double = true;
+            i += 1;
+            continue;
+        }
+        if ch == '`' {
+            in_template = true;
+            i += 1;
+            continue;
+        }
+
         if ch.is_ascii_alphanumeric() || ch == '_' {
             ident.push(ch);
         } else {
@@ -38,7 +124,9 @@ fn contains_identifier(source: &str, needle: &str) -> bool {
             }
             ident.clear();
         }
+        i += 1;
     }
+
     ident == needle
 }
 
@@ -1035,6 +1123,22 @@ mod tests {
         assert!(result.contains("i = i + 1;"));
         assert!(result.contains("for item in (arr).iter().cloned()"));
         assert!(result.contains("while sum < 100 && sum >= 0"));
+    }
+
+    #[test]
+    fn test_compile_rejects_while_keyword() {
+        let trust_code = r#"
+            function bad(): int32 {
+                var i: int32 = 0;
+                while (i < 3) {
+                    i = i + 1;
+                }
+                return i;
+            }
+        "#;
+
+        let err = compile(trust_code).unwrap_err().to_string();
+        assert!(err.contains("`while` is not supported in TRUST"));
     }
 
     #[test]

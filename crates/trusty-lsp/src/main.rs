@@ -44,7 +44,7 @@ impl Backend {
     fn completion_items() -> Vec<CompletionItem> {
         let keywords = [
             "function", "struct", "enum", "implements", "import", "export", "from", "val", "var", "const",
-            "if", "else", "match", "default", "try", "catch", "finally", "for", "in", "of", "loop", "while",
+            "if", "else", "match", "default", "try", "catch", "finally", "for", "in", "of", "loop",
             "break", "continue", "return", "throw", "and", "or",
         ];
         let types = [
@@ -84,7 +84,7 @@ impl Backend {
             "var" => Some("`var`: mutable local variable."),
             "const" => Some("`const`: global constant."),
             "match" => Some("`match (x) { pat => expr, default => expr }`: expression match."),
-            "loop" => Some("`loop (cond) { ... }`: conditional loop (rewritten to `while`)."),
+            "loop" => Some("`loop (cond) { ... }`: conditional loop."),
             "string" => Some("`string(...)`: cast value to TRUST string."),
             "boolean" => Some("`boolean(...)`: cast value to TRUST boolean."),
             "int32" => Some("`int32`: 32-bit signed integer."),

@@ -47,6 +47,15 @@ enum Commands {
         input: PathBuf,
     },
 
+    /// Format a TRUST source file
+    Format {
+        input: PathBuf,
+
+        /// Check formatting without writing changes
+        #[arg(long)]
+        check: bool,
+    },
+
     Version,
 }
 
@@ -70,6 +79,9 @@ fn main() -> Result<()> {
         }
         Some(Commands::Check { input }) => {
             check_file(input)?;
+        }
+        Some(Commands::Format { input, check }) => {
+            format_file(input, *check)?;
         }
         Some(Commands::Version) => {
             println!("trusty {}", env!("CARGO_PKG_VERSION"));
@@ -330,6 +342,313 @@ fn check_file(input: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+// ─── trusty format ───────────────────────────────────────────────────────────
+
+fn format_file(input: &PathBuf, check: bool) -> Result<()> {
+    let source = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read {}", input.display()))?;
+    let formatted = format_trust_source(&source);
+
+    if check {
+        if source == formatted {
+            println!("✅ Already formatted: {}", input.display());
+            return Ok(());
+        }
+        bail!("❌ Needs formatting: {}", input.display());
+    }
+
+    if source != formatted {
+        fs::write(input, formatted)
+            .with_context(|| format!("Failed to write {}", input.display()))?;
+        println!("✅ Formatted {}", input.display());
+    } else {
+        println!("✅ Already formatted: {}", input.display());
+    }
+
+    Ok(())
+}
+
+fn format_trust_source(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut i = 0usize;
+    let mut out = String::with_capacity(source.len() + source.len() / 8);
+    let mut indent = 0usize;
+    let mut paren_depth = 0usize;
+    let mut at_line_start = true;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_template = false;
+    let mut prev_input_was_newline = false;
+
+    fn push_indent(out: &mut String, indent: usize) {
+        for _ in 0..indent {
+            out.push_str("    ");
+        }
+    }
+
+    fn trim_trailing_spaces(out: &mut String) {
+        while out.ends_with(' ') || out.ends_with('\t') {
+            out.pop();
+        }
+    }
+
+    fn ensure_line(out: &mut String, at_line_start: &mut bool, indent: usize) {
+        if *at_line_start {
+            push_indent(out, indent);
+            *at_line_start = false;
+        }
+    }
+
+    while i < chars.len() {
+        let c = chars[i];
+        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+
+        if in_single {
+            prev_input_was_newline = false;
+            ensure_line(&mut out, &mut at_line_start, indent);
+            out.push(c);
+            if c == '\\' && next.is_some() {
+                i += 1;
+                out.push(chars[i]);
+            } else if c == '\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double {
+            prev_input_was_newline = false;
+            ensure_line(&mut out, &mut at_line_start, indent);
+            out.push(c);
+            if c == '\\' && next.is_some() {
+                i += 1;
+                out.push(chars[i]);
+            } else if c == '"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_template {
+            prev_input_was_newline = false;
+            ensure_line(&mut out, &mut at_line_start, indent);
+            out.push(c);
+            if c == '\\' && next.is_some() {
+                i += 1;
+                out.push(chars[i]);
+            } else if c == '`' {
+                in_template = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == '/' && next == Some('/') {
+            prev_input_was_newline = false;
+            ensure_line(&mut out, &mut at_line_start, indent);
+            out.push('/');
+            out.push('/');
+            i += 2;
+            while i < chars.len() && chars[i] != '\n' {
+                out.push(chars[i]);
+                i += 1;
+            }
+            trim_trailing_spaces(&mut out);
+            out.push('\n');
+            at_line_start = true;
+            continue;
+        }
+
+        if c == '/' && next == Some('*') {
+            prev_input_was_newline = false;
+            ensure_line(&mut out, &mut at_line_start, indent);
+            out.push('/');
+            out.push('*');
+            i += 2;
+            while i < chars.len() {
+                out.push(chars[i]);
+                if chars[i] == '*' && i + 1 < chars.len() && chars[i + 1] == '/' {
+                    i += 1;
+                    out.push('/');
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+
+        match c {
+            '\'' => {
+                ensure_line(&mut out, &mut at_line_start, indent);
+                out.push(c);
+                in_single = true;
+            }
+            '"' => {
+                ensure_line(&mut out, &mut at_line_start, indent);
+                out.push(c);
+                in_double = true;
+            }
+            '`' => {
+                ensure_line(&mut out, &mut at_line_start, indent);
+                out.push(c);
+                in_template = true;
+            }
+            '(' => {
+                ensure_line(&mut out, &mut at_line_start, indent);
+                out.push('(');
+                paren_depth += 1;
+            }
+            ')' => {
+                ensure_line(&mut out, &mut at_line_start, indent);
+                out.push(')');
+                paren_depth = paren_depth.saturating_sub(1);
+            }
+            '{' => {
+                trim_trailing_spaces(&mut out);
+                if !at_line_start && !out.ends_with('\n') {
+                    out.push(' ');
+                }
+                out.push('{');
+                out.push('\n');
+                indent += 1;
+                at_line_start = true;
+            }
+            '}' => {
+                trim_trailing_spaces(&mut out);
+                if !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                indent = indent.saturating_sub(1);
+                push_indent(&mut out, indent);
+                out.push('}');
+                at_line_start = false;
+            }
+            ';' => {
+                ensure_line(&mut out, &mut at_line_start, indent);
+                out.push(';');
+                if paren_depth == 0 {
+                    trim_trailing_spaces(&mut out);
+                    out.push('\n');
+                    at_line_start = true;
+                }
+            }
+            ',' => {
+                ensure_line(&mut out, &mut at_line_start, indent);
+                out.push(',');
+                if next.is_some() && next != Some('\n') && next != Some(' ') {
+                    out.push(' ');
+                }
+            }
+            '\n' | '\r' => {
+                trim_trailing_spaces(&mut out);
+                if prev_input_was_newline {
+                    if !out.ends_with("\n\n") {
+                        out.push('\n');
+                    }
+                } else if !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                at_line_start = true;
+                prev_input_was_newline = true;
+            }
+            _ => {
+                prev_input_was_newline = false;
+                match c {
+                    ' ' | '\t' => {
+                        if !at_line_start && !out.ends_with(' ') && !out.ends_with('\n') {
+                            out.push(' ');
+                        }
+                    }
+                    _ => {
+                        ensure_line(&mut out, &mut at_line_start, indent);
+                        out.push(c);
+                    }
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    let mut formatted = out
+        .lines()
+        .map(|line| line.trim_end().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    formatted = reflow_named_imports(&formatted, 85);
+    if !formatted.ends_with('\n') {
+        formatted.push('\n');
+    }
+    formatted
+}
+
+fn reflow_named_imports(source: &str, print_width: usize) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut i = 0usize;
+
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        if trimmed.starts_with("import {") {
+            let mut decl = trimmed.to_string();
+            let mut j = i;
+            while !decl.contains("} from ") && j + 1 < lines.len() {
+                j += 1;
+                decl.push(' ');
+                decl.push_str(lines[j].trim());
+            }
+
+            if let Some(reflowed) = reflow_named_import_decl(&decl, print_width) {
+                out.extend(reflowed);
+                i = j + 1;
+                continue;
+            }
+        }
+
+        out.push(lines[i].to_string());
+        i += 1;
+    }
+
+    out.join("\n")
+}
+
+fn reflow_named_import_decl(decl: &str, print_width: usize) -> Option<Vec<String>> {
+    let trimmed = decl.trim();
+    if !trimmed.starts_with("import {") {
+        return None;
+    }
+    let from_marker = "} from ";
+    let from_pos = trimmed.find(from_marker)?;
+    let inner = trimmed["import {".len()..from_pos].trim();
+    let tail = format!("}}{}", &trimmed[from_pos + 1..]);
+
+    let names: Vec<String> = inner
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+
+    let one_line = format!("import {{ {} {}", names.join(", "), tail);
+    if one_line.len() <= print_width {
+        return Some(vec![one_line]);
+    }
+
+    let mut out = Vec::with_capacity(names.len() + 2);
+    out.push("import {".to_string());
+    for name in names {
+        out.push(format!("    {},", name));
+    }
+    out.push(format!("}}{}", &trimmed[from_pos + 1..]));
+    Some(out)
+}
+
 // ─── local module resolver (TRUST files) ────────────────────────────────────
 
 fn resolve_and_bundle_modules(entry: &Path) -> Result<String> {
@@ -469,4 +788,44 @@ fn rewrite_export_declarations(source: &str) -> Result<String> {
         }
     }
     Ok(out.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_trust_source;
+
+    #[test]
+    fn test_format_trust_source_basic() {
+        let src = "function main(){let x=1; if(x>0){console.write(\"ok\");}}\n";
+        let got = format_trust_source(src);
+        assert!(got.contains("function main() {"));
+        assert!(got.contains("let x=1;"));
+        assert!(got.contains("if(x>0) {"));
+        assert!(got.contains("console.write(\"ok\");"));
+    }
+
+    #[test]
+    fn test_format_trust_source_keeps_for_header() {
+        let src = "function main(){for (var i = 0; i < 10; i = i + 1){console.write(i);}}\n";
+        let got = format_trust_source(src);
+        assert!(got.contains("for (var i = 0; i < 10; i = i + 1) {"));
+    }
+
+    #[test]
+    fn test_format_trust_source_keeps_single_blank_line() {
+        let src = "function main(){\n\n\nconsole.write(\"a\");\n\n\nconsole.write(\"b\");\n}\n";
+        let got = format_trust_source(src);
+        assert!(got.contains("\n\n    console.write(\"a\");"));
+        assert!(got.contains("console.write(\"a\");\n\n    console.write(\"b\");"));
+        assert!(!got.contains("\n\n\n"));
+    }
+
+    #[test]
+    fn test_format_trust_source_wraps_long_named_imports() {
+        let src = "import { Instant, Duration, Date, Time, DateTime, sleep, compare, addDays, addMonths, addYears, subMinutes, subMonths, subYears } from \"trusty:time\";\n";
+        let got = format_trust_source(src);
+        assert!(got.contains("import {\n"));
+        assert!(got.contains("    Instant,\n"));
+        assert!(got.contains("} from \"trusty:time\";"));
+    }
 }
