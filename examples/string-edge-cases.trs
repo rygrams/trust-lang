@@ -1,0 +1,20 @@
+function main() {
+    val s: string = "abcdef";
+    val minusOne: int32 = 0 - 1;
+    val minusTwo: int32 = 0 - 2;
+
+    console.write(`slice(-2): ${s.slice(minusTwo)}`);
+    console.write(`slice(1, -1): ${s.slice(1, minusOne)}`);
+    console.write(`substring(-2, 2): ${s.substring(minusTwo, 2)}`);
+    console.write(`substring(4, 2): ${s.substring(4, 2)}`);
+    console.write(`substr(-2, 2): ${s.substr(minusTwo, 2)}`);
+    console.write(`charAt(-1): ${s.charAt(minusOne)}`);
+    console.write(`at(-1): ${s.at(minusOne)}`);
+    console.write(`charAt(99): ${s.charAt(99)}`);
+    console.write(`at(99): ${s.at(99)}`);
+
+    val u: string = "👍a";
+    console.write(`unicode length (u.length): ${string(u.length)}`);
+    console.write(`unicode indexOf(a): ${string(u.indexOf("a"))}`);
+    console.write(`unicode at(-1): ${u.at(minusOne)}`);
+}

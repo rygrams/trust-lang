@@ -31,6 +31,12 @@
         "scopeName": "source.trust",
         "path": "./syntaxes/trust.tmLanguage.json"
       }
+    ],
+    "snippets": [
+      {
+        "language": "trust",
+        "path": "./snippets/trust.code-snippets"
+      }
     ]
   }
 }

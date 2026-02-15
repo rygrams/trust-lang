@@ -8,22 +8,23 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
         Expr::Bin(bin_expr) => {
             let left = transpile_expression(&bin_expr.left, scope)?;
             let right = transpile_expression(&bin_expr.right, scope)?;
-            let op = match bin_expr.op {
-                BinaryOp::Add => "+",
-                BinaryOp::Sub => "-",
-                BinaryOp::Mul => "*",
-                BinaryOp::Div => "/",
-                BinaryOp::Lt => "<",
-                BinaryOp::LtEq => "<=",
-                BinaryOp::Gt => ">",
-                BinaryOp::GtEq => ">=",
-                BinaryOp::EqEq | BinaryOp::EqEqEq => "==",
-                BinaryOp::NotEq | BinaryOp::NotEqEq => "!=",
-                BinaryOp::LogicalAnd => "&&",
-                BinaryOp::LogicalOr => "||",
-                _ => "?",
-            };
-            Ok(format!("{} {} {}", left, op, right))
+            match bin_expr.op {
+                BinaryOp::Add => Ok(format!("{} + {}", left, right)),
+                BinaryOp::Sub => Ok(format!("{} - {}", left, right)),
+                BinaryOp::Mul => Ok(format!("{} * {}", left, right)),
+                BinaryOp::Div => Ok(format!("{} / {}", left, right)),
+                BinaryOp::Mod => Ok(format!("{} % {}", left, right)),
+                BinaryOp::Lt => Ok(format!("{} < {}", left, right)),
+                BinaryOp::LtEq => Ok(format!("{} <= {}", left, right)),
+                BinaryOp::Gt => Ok(format!("{} > {}", left, right)),
+                BinaryOp::GtEq => Ok(format!("{} >= {}", left, right)),
+                BinaryOp::EqEq | BinaryOp::EqEqEq => Ok(format!("{} == {}", left, right)),
+                BinaryOp::NotEq | BinaryOp::NotEqEq => Ok(format!("{} != {}", left, right)),
+                BinaryOp::LogicalAnd => Ok(format!("{} && {}", left, right)),
+                BinaryOp::LogicalOr => Ok(format!("{} || {}", left, right)),
+                BinaryOp::Exp => transpile_exponentiation(&bin_expr.left, &bin_expr.right, &left, &right, scope),
+                _ => Ok("?".to_string()),
+            }
         }
         Expr::Ident(ident) => Ok(ident.sym.to_string()),
         Expr::This(_) => Ok("self".to_string()),
@@ -44,6 +45,12 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
                 .collect();
             Ok(format!("vec![{}]", elems?.join(", ")))
         }
+        Expr::Cond(cond) => {
+            let test = transpile_expression(&cond.test, scope)?;
+            let cons = transpile_expression(&cond.cons, scope)?;
+            let alt = transpile_expression(&cond.alt, scope)?;
+            Ok(format!("if {} {{ {} }} else {{ {} }}", test, cons, alt))
+        }
         Expr::Member(member) => transpile_member_access(member, scope),
         Expr::Assign(assign) => transpile_assign(assign, scope),
         Expr::Arrow(arrow) => transpile_arrow(arrow, scope),
@@ -62,6 +69,62 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
     }
 }
 
+fn transpile_exponentiation(
+    left_expr: &Expr,
+    _right_expr: &Expr,
+    left: &str,
+    right: &str,
+    scope: &Scope,
+) -> Result<String> {
+    let left_ty = infer_rust_type(left_expr, scope);
+    let out = match left_ty.as_deref() {
+        Some("f32") => format!("({} as f32).powf({} as f32)", left, right),
+        Some("f64") => format!("({} as f64).powf({} as f64)", left, right),
+        Some("i8") => format!("({} as i8).pow(({}).max(0) as u32)", left, right),
+        Some("i16") => format!("({} as i16).pow(({}).max(0) as u32)", left, right),
+        Some("i32") => format!("({} as i32).pow(({}).max(0) as u32)", left, right),
+        Some("i64") => format!("({} as i64).pow(({}).max(0) as u32)", left, right),
+        Some("u8") => format!("({} as u8).pow(({}).max(0) as u32)", left, right),
+        Some("u16") => format!("({} as u16).pow(({}).max(0) as u32)", left, right),
+        Some("u32") => format!("({} as u32).pow(({}).max(0) as u32)", left, right),
+        Some("u64") => format!("({} as u64).pow(({}).max(0) as u32)", left, right),
+        Some("usize") => format!("({} as usize).pow(({}).max(0) as u32)", left, right),
+        Some("isize") => format!("({} as isize).pow(({}).max(0) as u32)", left, right),
+        _ => format!("({} as f64).powf({} as f64)", left, right),
+    };
+    Ok(out)
+}
+
+fn infer_rust_type(expr: &Expr, scope: &Scope) -> Option<String> {
+    match expr {
+        Expr::Ident(ident) => scope.get(&ident.sym.to_string()).cloned(),
+        Expr::Lit(Lit::Num(n)) => {
+            if n.value.fract() == 0.0 {
+                Some("i32".to_string())
+            } else {
+                Some("f64".to_string())
+            }
+        }
+        Expr::Paren(paren) => infer_rust_type(&paren.expr, scope),
+        Expr::Call(call) => match &call.callee {
+            Callee::Expr(callee) => match &**callee {
+                Expr::Ident(ident) => match ident.sym.as_ref() {
+                    "int8" => Some("i8".to_string()),
+                    "int16" => Some("i16".to_string()),
+                    "int32" | "int" | "number" | "number32" => Some("i32".to_string()),
+                    "int64" | "number64" => Some("i64".to_string()),
+                    "float32" => Some("f32".to_string()),
+                    "float64" | "float" => Some("f64".to_string()),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Field access: transparent borrow for Pointer<T> and Threaded<T>
 fn transpile_member_access(member: &MemberExpr, scope: &Scope) -> Result<String> {
     let obj_str = transpile_expression(&member.obj, scope)?;
@@ -76,17 +139,32 @@ fn transpile_member_access(member: &MemberExpr, scope: &Scope) -> Result<String>
         MemberProp::Ident(ident) => ident.sym.to_string(),
         _ => "unknown".to_string(),
     };
-    // .length → .len()
+    // .length
     if prop == "length" {
         if let Some(name) = ident_name(&member.obj) {
             if let Some(ty) = scope.get(&name) {
                 if is_pointer(ty) {
+                    if ty == "Rc<RefCell<String>>" {
+                        return Ok(format!("{}.borrow().chars().count() as i32", obj_str));
+                    }
                     return Ok(format!("{}.borrow().len()", obj_str));
                 }
                 if is_threaded(ty) {
+                    if ty == "Arc<Mutex<String>>" {
+                        return Ok(format!("{}.lock().unwrap().chars().count() as i32", obj_str));
+                    }
                     return Ok(format!("{}.lock().unwrap().len()", obj_str));
                 }
+                if ty == "String" {
+                    return Ok(format!("{}.chars().count() as i32", obj_str));
+                }
             }
+        }
+        match &*member.obj {
+            Expr::Lit(Lit::Str(_)) | Expr::Tpl(_) => {
+                return Ok(format!("{}.chars().count() as i32", obj_str));
+            }
+            _ => {}
         }
         return Ok(format!("{}.len()", obj_str));
     }
@@ -221,13 +299,42 @@ fn transpile_builtin_cast_call(func_name: &str, args: &[ExprOrSpread], scope: &S
         _ => None,
     };
 
-    if func_name == "String" {
+    if func_name == "string" {
         let out = match arg_type.as_deref() {
             Some("Rc<RefCell<String>>") => format!("{}.borrow().to_string()", arg_rendered),
             Some("Arc<Mutex<String>>") => format!("{}.lock().unwrap().to_string()", arg_rendered),
             Some(t) if t.starts_with("Rc<RefCell<") => format!("(*{}.borrow()).to_string()", arg_rendered),
             Some(t) if t.starts_with("Arc<Mutex<") => format!("(*{}.lock().unwrap()).to_string()", arg_rendered),
             _ => format!("({}).to_string()", arg_rendered),
+        };
+        return Ok(Some(out));
+    }
+
+    if func_name == "boolean" {
+        let value_expr = match arg_type.as_deref() {
+            Some("Rc<RefCell<String>>") => format!("{}.borrow()", arg_rendered),
+            Some("Arc<Mutex<String>>") => format!("{}.lock().unwrap()", arg_rendered),
+            Some(t) if t.starts_with("Rc<RefCell<") => format!("*{}.borrow()", arg_rendered),
+            Some(t) if t.starts_with("Arc<Mutex<") => format!("*{}.lock().unwrap()", arg_rendered),
+            _ => arg_rendered.clone(),
+        };
+
+        let out = match arg_type.as_deref() {
+            Some("bool") | Some("Rc<RefCell<bool>>") | Some("Arc<Mutex<bool>>") => value_expr,
+            Some("String" | "Rc<RefCell<String>>" | "Arc<Mutex<String>>") => {
+                format!("!({}).is_empty()", value_expr)
+            }
+            Some(t) if is_numeric_rust_type(t) => format!("({}) != 0", value_expr),
+            Some(t) if t.starts_with("Rc<RefCell<") || t.starts_with("Arc<Mutex<") => {
+                format!("({}) != 0", value_expr)
+            }
+            _ => match &**arg_expr {
+                Expr::Lit(Lit::Bool(_)) => value_expr,
+                Expr::Lit(Lit::Str(_)) | Expr::Tpl(_) => format!("!({}).is_empty()", value_expr),
+                Expr::Lit(Lit::Num(_)) => format!("({}) != 0", value_expr),
+                expr if is_boolean_like_expr(expr) => value_expr,
+                _ => format!("({}) != 0", value_expr),
+            },
         };
         return Ok(Some(out));
     }
@@ -343,10 +450,16 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         "endsWith" if arg_strs.len() == 1 => return Ok(format!("{}.ends_with(({}).as_str())", string_obj, arg_strs[0])),
         "includes" if is_string && arg_strs.len() == 1 => return Ok(format!("{}.contains(({}).as_str())", string_obj, arg_strs[0])),
         "indexOf" if is_string && arg_strs.len() == 1 => {
-            return Ok(format!("{}.find(({}).as_str()).map(|i| i as i32).unwrap_or(-1)", string_obj, arg_strs[0]));
+            return Ok(format!(
+                "{{ let __trust_s = &{}; match __trust_s.find(({}).as_str()) {{ Some(__trust_byte) => __trust_s.char_indices().take_while(|(i, _)| *i < __trust_byte).count() as i32, None => -1 }} }}",
+                string_obj, arg_strs[0]
+            ));
         }
         "lastIndexOf" if arg_strs.len() == 1 => {
-            return Ok(format!("{}.rfind(({}).as_str()).map(|i| i as i32).unwrap_or(-1)", string_obj, arg_strs[0]));
+            return Ok(format!(
+                "{{ let __trust_s = &{}; match __trust_s.rfind(({}).as_str()) {{ Some(__trust_byte) => __trust_s.char_indices().take_while(|(i, _)| *i < __trust_byte).count() as i32, None => -1 }} }}",
+                string_obj, arg_strs[0]
+            ));
         }
         "replace" if arg_strs.len() == 2 => {
             return Ok(format!("{}.replacen(({}).as_str(), ({}).as_str(), 1)", string_obj, arg_strs[0], arg_strs[1]));
@@ -360,7 +473,7 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         "repeat" if arg_strs.len() == 1 => return Ok(format!("{}.repeat(({}).max(0) as usize)", string_obj, arg_strs[0])),
         "charAt" if arg_strs.len() == 1 => {
             return Ok(format!(
-                "{{ let __trust_i = ({}).max(0) as usize; {}.chars().nth(__trust_i).map(|c| c.to_string()).unwrap_or_default() }}",
+                "{{ let __trust_i = ({}) as isize; if __trust_i < 0 {{ String::new() }} else {{ {}.chars().nth(__trust_i as usize).map(|c| c.to_string()).unwrap_or_default() }} }}",
                 arg_strs[0], string_obj
             ));
         }
@@ -447,4 +560,43 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         "."
     };
     Ok(format!("{}{}{}({})", obj, separator, prop, arg_strs.join(", ")))
+}
+
+fn is_numeric_rust_type(ty: &str) -> bool {
+    matches!(ty, "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize" | "f32" | "f64")
+}
+
+fn is_boolean_like_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(Lit::Bool(_)) => true,
+        Expr::Unary(unary) => matches!(unary.op, UnaryOp::Bang),
+        Expr::Bin(bin) => matches!(
+            bin.op,
+            BinaryOp::EqEq
+                | BinaryOp::EqEqEq
+                | BinaryOp::NotEq
+                | BinaryOp::NotEqEq
+                | BinaryOp::Lt
+                | BinaryOp::LtEq
+                | BinaryOp::Gt
+                | BinaryOp::GtEq
+                | BinaryOp::LogicalAnd
+                | BinaryOp::LogicalOr
+        ),
+        Expr::Paren(p) => is_boolean_like_expr(&p.expr),
+        Expr::Call(call) => match &call.callee {
+            Callee::Expr(callee_expr) => match &**callee_expr {
+                Expr::Ident(ident) => ident.sym == "boolean",
+                Expr::Member(member) => match &member.prop {
+                    MemberProp::Ident(ident) => {
+                        matches!(ident.sym.as_ref(), "includes" | "startsWith" | "endsWith" | "has")
+                    }
+                    _ => false,
+                },
+                _ => false,
+            },
+            _ => false,
+        },
+        _ => false,
+    }
 }

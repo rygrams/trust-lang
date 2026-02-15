@@ -1,43 +1,24 @@
-const BASE: int32 = 100;
-
-function add(a: int32, b: int32): int32 {
-    return a + b;
-}
-
-function sub(a: int32, b: int32): int32 {
-    return a - b;
-}
-
-function multiply(a: int32, b: int32): int32 {
-    return a * b;
-}
-
-function divide(a: int32, b: int32): int32 {
-    return a / b;
-}
+const APP_NAME: string = "TRUST";
 
 function main() {
-    val a: int32 = 20;
-    val b: int32 = 8;
+    var raw: string = "  hello trust lang  ";
+    raw = raw.trim();
 
-    val sum = add(a, b);
-    val diff = sub(a, b);
-    val product = multiply(a, b);
-    val quotient = divide(a, b);
-    val mixed = add(sum, sub(BASE, 25));
-    val from_text: int32 = int32("42");
-    val as_float: float64 = float64(sum);
-    val pi: float = 3.5;
+    val upper: string = raw.toUpperCase();
+    val lower: string = raw.toLowerCase();
+    val title: string = raw.replace("trust", "TRUST");
+    val short: string = raw.substring(0, 5);
+    val pieces = raw.split(" ");
+    val joined: string = raw.concat(" with ", APP_NAME);
+    val has_lang: boolean = boolean(raw.includes("lang"));
+    val check: string = string(has_lang);
 
-    var float_total: float = as_float + pi;
-    float_total = float_total + float(1.25);
-
-    console.write(sum);
-    console.write(diff);
-    console.write(mixed);
-    console.write(product);
-    console.write(quotient);
-    console.write(from_text);
-    console.write(as_float);
-    console.write(float_total);
+    console.write(raw);
+    console.write(upper);
+    console.write(lower);
+    console.write(title);
+    console.write(short);
+    console.write(joined);
+    console.write(check);
+    console.write(string(pieces.length));
 }

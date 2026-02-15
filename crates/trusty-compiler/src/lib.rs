@@ -43,7 +43,7 @@ fn contains_identifier(source: &str, needle: &str) -> bool {
 
 /// Rewrite TRUST-specific keywords to valid TypeScript before SWC parsing.
 fn preprocess(source: &str) -> String {
-    rewrite_val_declarations(&rewrite_implements_blocks(source))
+    rewrite_word_boolean_ops(&rewrite_val_declarations(&rewrite_implements_blocks(&rewrite_match_blocks(source))))
         .replace("struct ", "interface ")
         .lines()
         .map(|line| {
@@ -59,6 +59,537 @@ fn preprocess(source: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn rewrite_match_blocks(source: &str) -> String {
+    fn is_ident_char(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '_'
+    }
+
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len());
+    let mut i = 0usize;
+    let mut match_id = 0usize;
+
+    while i < chars.len() {
+        let can_start = i + 5 <= chars.len()
+            && chars[i..i + 5].iter().collect::<String>() == "match"
+            && (i == 0 || !is_ident_char(chars[i - 1]))
+            && (i + 5 >= chars.len() || !is_ident_char(chars[i + 5]));
+
+        if !can_start {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+
+        let mut j = i + 5;
+        while j < chars.len() && chars[j].is_whitespace() {
+            j += 1;
+        }
+        if j >= chars.len() || chars[j] != '(' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+
+        let Some(subject_end) = find_matching(&chars, j, '(', ')') else {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        };
+        let subject = chars[j + 1..subject_end].iter().collect::<String>().trim().to_string();
+
+        let mut k = subject_end + 1;
+        while k < chars.len() && chars[k].is_whitespace() {
+            k += 1;
+        }
+        if k >= chars.len() || chars[k] != '{' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+
+        let Some(body_end) = find_matching(&chars, k, '{', '}') else {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        };
+
+        let body = chars[k + 1..body_end].iter().collect::<String>();
+        if let Some(rewritten) = build_match_expr(&subject, &body, match_id) {
+            out.push_str(&rewritten);
+            match_id += 1;
+            i = body_end + 1;
+            continue;
+        }
+
+        out.push(chars[i]);
+        i += 1;
+    }
+
+    out
+}
+
+fn find_matching(chars: &[char], open_pos: usize, open: char, close: char) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut i = open_pos;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_template = false;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+
+        if in_single {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_template {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '`' {
+                in_template = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == '\'' {
+            in_single = true;
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            in_double = true;
+            i += 1;
+            continue;
+        }
+        if c == '`' {
+            in_template = true;
+            i += 1;
+            continue;
+        }
+
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn split_top_level_csv(input: &str) -> Vec<String> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    let mut par = 0i32;
+    let mut brk = 0i32;
+    let mut brc = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_template = false;
+
+    while i < chars.len() {
+        let c = chars[i];
+        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+
+        if in_single {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_template {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '`' {
+                in_template = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+
+        match c {
+            '\'' => in_single = true,
+            '"' => in_double = true,
+            '`' => in_template = true,
+            '(' => par += 1,
+            ')' => par -= 1,
+            '[' => brk += 1,
+            ']' => brk -= 1,
+            '{' => brc += 1,
+            '}' => brc -= 1,
+            ',' if par == 0 && brk == 0 && brc == 0 => {
+                let part = chars[start..i].iter().collect::<String>().trim().to_string();
+                if !part.is_empty() {
+                    parts.push(part);
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let tail = chars[start..].iter().collect::<String>().trim().to_string();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts
+}
+
+fn find_top_level_arrow(input: &str) -> Option<usize> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0usize;
+    let mut par = 0i32;
+    let mut brk = 0i32;
+    let mut brc = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_template = false;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+
+        if in_single {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_template {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '`' {
+                in_template = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match c {
+            '\'' => in_single = true,
+            '"' => in_double = true,
+            '`' => in_template = true,
+            '(' => par += 1,
+            ')' => par -= 1,
+            '[' => brk += 1,
+            ']' => brk -= 1,
+            '{' => brc += 1,
+            '}' => brc -= 1,
+            '=' if next == Some('>') && par == 0 && brk == 0 && brc == 0 => return Some(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn build_match_expr(subject: &str, body: &str, match_id: usize) -> Option<String> {
+    let arms = split_top_level_csv(body);
+    if arms.is_empty() {
+        return None;
+    }
+
+    let mut conditions: Vec<(String, String)> = Vec::new();
+    let mut default_expr: Option<String> = None;
+
+    for arm in arms {
+        let arrow = find_top_level_arrow(&arm)?;
+        let pattern = arm[..arrow].trim();
+        let expr = arm[arrow + 2..].trim();
+        if pattern.is_empty() || expr.is_empty() {
+            return None;
+        }
+        if pattern == "default" {
+            default_expr = Some(expr.to_string());
+            continue;
+        }
+        if pattern.starts_with('[') && pattern.ends_with(']') {
+            let list_inner = pattern[1..pattern.len() - 1].trim();
+            let cond = format!("[{}].contains(&__trust_match_{})", list_inner, match_id);
+            conditions.push((cond, expr.to_string()));
+        } else {
+            let cond = format!("__trust_match_{} == ({})", match_id, pattern);
+            conditions.push((cond, expr.to_string()));
+        }
+    }
+
+    let mut out = format!("({{ let __trust_match_{} = {}; ", match_id, subject);
+    if conditions.is_empty() {
+        let d = default_expr?;
+        out.push_str(&format!("{} }})", d));
+        return Some(out);
+    }
+
+    for (idx, (cond, expr)) in conditions.iter().enumerate() {
+        if idx == 0 {
+            out.push_str(&format!("if {} {{ {} }} ", cond, expr));
+        } else {
+            out.push_str(&format!("else if {} {{ {} }} ", cond, expr));
+        }
+    }
+
+    if let Some(d) = default_expr {
+        out.push_str(&format!("else {{ {} }} ", d));
+    } else {
+        out.push_str("else { panic!(\"non-exhaustive match\") } ");
+    }
+    out.push_str("})");
+    Some(out)
+}
+
+fn rewrite_word_boolean_ops(source: &str) -> String {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Mode {
+        Normal,
+        LineComment,
+        BlockComment,
+        SingleString,
+        DoubleString,
+        TemplateString,
+    }
+
+    fn is_ident_char(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '_'
+    }
+
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len());
+    let mut i = 0;
+    let mut mode = Mode::Normal;
+
+    while i < chars.len() {
+        let c = chars[i];
+        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+
+        match mode {
+            Mode::Normal => {
+                if c == '/' && next == Some('/') {
+                    out.push(c);
+                    out.push('/');
+                    i += 2;
+                    mode = Mode::LineComment;
+                    continue;
+                }
+                if c == '/' && next == Some('*') {
+                    out.push(c);
+                    out.push('*');
+                    i += 2;
+                    mode = Mode::BlockComment;
+                    continue;
+                }
+                if c == '\'' {
+                    out.push(c);
+                    i += 1;
+                    mode = Mode::SingleString;
+                    continue;
+                }
+                if c == '"' {
+                    out.push(c);
+                    i += 1;
+                    mode = Mode::DoubleString;
+                    continue;
+                }
+                if c == '`' {
+                    out.push(c);
+                    i += 1;
+                    mode = Mode::TemplateString;
+                    continue;
+                }
+
+                // Replace standalone `and`/`or` identifiers
+                if c == 'a' && i + 2 < chars.len() && chars[i + 1] == 'n' && chars[i + 2] == 'd' {
+                    let prev_ok = i == 0 || !is_ident_char(chars[i - 1]);
+                    let next_ok = i + 3 >= chars.len() || !is_ident_char(chars[i + 3]);
+                    if prev_ok && next_ok {
+                        out.push_str("&&");
+                        i += 3;
+                        continue;
+                    }
+                }
+                if c == 'o' && i + 1 < chars.len() && chars[i + 1] == 'r' {
+                    let prev_ok = i == 0 || !is_ident_char(chars[i - 1]);
+                    let next_ok = i + 2 >= chars.len() || !is_ident_char(chars[i + 2]);
+                    if prev_ok && next_ok {
+                        out.push_str("||");
+                        i += 2;
+                        continue;
+                    }
+                }
+                if c == 'l'
+                    && i + 3 < chars.len()
+                    && chars[i + 1] == 'o'
+                    && chars[i + 2] == 'o'
+                    && chars[i + 3] == 'p'
+                {
+                    let prev_ok = i == 0 || !is_ident_char(chars[i - 1]);
+                    let mut k = i + 4;
+                    while k < chars.len() && chars[k].is_whitespace() {
+                        k += 1;
+                    }
+                    let next_ok = (i + 4 >= chars.len() || !is_ident_char(chars[i + 4]))
+                        && k < chars.len()
+                        && chars[k] == '(';
+                    if prev_ok && next_ok {
+                        out.push_str("while");
+                        i += 4;
+                        continue;
+                    }
+                }
+
+                out.push(c);
+                i += 1;
+            }
+            Mode::LineComment => {
+                out.push(c);
+                i += 1;
+                if c == '\n' {
+                    mode = Mode::Normal;
+                }
+            }
+            Mode::BlockComment => {
+                out.push(c);
+                i += 1;
+                if c == '*' && next == Some('/') {
+                    out.push('/');
+                    i += 1;
+                    mode = Mode::Normal;
+                }
+            }
+            Mode::SingleString => {
+                out.push(c);
+                i += 1;
+                if c == '\\' {
+                    if let Some(n) = next {
+                        out.push(n);
+                        i += 1;
+                    }
+                } else if c == '\'' {
+                    mode = Mode::Normal;
+                }
+            }
+            Mode::DoubleString => {
+                out.push(c);
+                i += 1;
+                if c == '\\' {
+                    if let Some(n) = next {
+                        out.push(n);
+                        i += 1;
+                    }
+                } else if c == '"' {
+                    mode = Mode::Normal;
+                }
+            }
+            Mode::TemplateString => {
+                out.push(c);
+                i += 1;
+                if c == '\\' {
+                    if let Some(n) = next {
+                        out.push(n);
+                        i += 1;
+                    }
+                } else if c == '`' {
+                    mode = Mode::Normal;
+                }
+            }
+        }
+    }
+
+    out
 }
 
 fn rewrite_val_declarations(source: &str) -> String {
@@ -337,8 +868,9 @@ mod tests {
         assert!(result.contains("name.starts_with((\"A\".to_string()).as_str())"));
         assert!(result.contains("name.ends_with((\"z\".to_string()).as_str())"));
         assert!(result.contains("name.contains((\"x\".to_string()).as_str())"));
-        assert!(result.contains("name.find((\"x\".to_string()).as_str()).map(|i| i as i32).unwrap_or(-1)"));
-        assert!(result.contains("name.rfind((\"x\".to_string()).as_str()).map(|i| i as i32).unwrap_or(-1)"));
+        assert!(result.contains("match __trust_s.find((\"x\".to_string()).as_str())"));
+        assert!(result.contains("char_indices().take_while(|(i, _)| *i < __trust_byte).count() as i32"));
+        assert!(result.contains("match __trust_s.rfind((\"x\".to_string()).as_str())"));
         assert!(result.contains("name.replacen((\"a\".to_string()).as_str(), (\"b\".to_string()).as_str(), 1)"));
         assert!(result.contains("name.replace((\"a\".to_string()).as_str(), (\"b\".to_string()).as_str())"));
         assert!(result.contains("name.trim().to_string()"));
@@ -366,7 +898,7 @@ mod tests {
         assert!(result.contains("p.borrow().to_uppercase()"));
         assert!(result.contains("p.borrow().chars().collect()"));
         assert!(result.contains("p.borrow().contains((\"x\".to_string()).as_str())"));
-        assert!(result.contains("p.borrow().len()"));
+        assert!(result.contains("p.borrow().chars().count() as i32"));
     }
 
     #[test]
@@ -381,9 +913,13 @@ mod tests {
                 let n6: int32 = number(s);
                 let f: float64 = float64(a);
                 let f2: float64 = float(a);
-                let t1: string = String(a);
-                let t2: string = String(ps);
-                let t3: string = String(pn);
+                let t1: string = string(a);
+                let t2: string = string(ps);
+                let t3: string = string(pn);
+                let b1: boolean = boolean(a);
+                let b2: boolean = boolean(s);
+                let b3: boolean = boolean(ps);
+                let b4: boolean = boolean(false);
                 return t1;
             }
         "#;
@@ -400,16 +936,22 @@ mod tests {
         assert!(result.contains("(a).to_string()"));
         assert!(result.contains("ps.borrow().to_string()"));
         assert!(result.contains("(*pn.borrow()).to_string()"));
+        assert!(result.contains("(a) != 0"));
+        assert!(result.contains("!(s).is_empty()"));
+        assert!(result.contains("!(ps.borrow()).is_empty()"));
+        assert!(result.contains("false"));
     }
 
     #[test]
     fn test_compile_val_var_and_global_const() {
         let trust_code = r#"
             const SCALE: int32 = 10;
+            const APP: string = "TRUST";
 
             function test(): int32 {
                 val x: int32 = 2;
                 var y: int32 = 3;
+                val label = APP;
                 y = y + x;
                 return y + SCALE;
             }
@@ -417,10 +959,81 @@ mod tests {
 
         let result = compile(trust_code).unwrap();
         assert!(result.contains("const SCALE: i32 = 10;"));
+        assert!(result.contains("const APP: &'static str = \"TRUST\";"));
         assert!(result.contains("let x: i32 = 2;"));
         assert!(result.contains("let mut y: i32 = 3;"));
+        assert!(result.contains("let label = APP;"));
         assert!(result.contains("y = y + x;"));
         assert!(result.contains("return y + SCALE;"));
+    }
+
+    #[test]
+    fn test_compile_mod_and_exp() {
+        let trust_code = r#"
+            function ops(a: int32, b: int32, x: float64, y: float64): float64 {
+                let m: int32 = a % b;
+                let p: int32 = a ** 3;
+                let q: float64 = x ** y;
+                return q + float64(m) + float64(p);
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("a % b"));
+        assert!(result.contains("(a as i32).pow((3).max(0) as u32)"));
+        assert!(result.contains("(x as f64).powf(y as f64)"));
+    }
+
+    #[test]
+    fn test_compile_word_boolean_ops_and_ternary() {
+        let trust_code = r#"
+            function test(a: boolean, b: boolean): int32 {
+                // and or should not be rewritten inside comments
+                let keep: string = "and or";
+                let c: boolean = a and b or false;
+                let n: int32 = c ? 1 : 2;
+                return n;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("a && b || false"));
+        assert!(result.contains("let keep: String = \"and or\".to_string();"));
+        assert!(result.contains("let n: i32 = if c { 1 } else { 2 };"));
+    }
+
+    #[test]
+    fn test_compile_for_and_loop_forms() {
+        let trust_code = r#"
+            function loops(arr: int32[]): int32 {
+                var sum: int32 = 0;
+
+                for (var i: int32 = 0; i < 3; i = i + 1) {
+                    sum = sum + i;
+                }
+
+                for (item in arr) {
+                    sum = sum + item;
+                }
+
+                for (item of arr) {
+                    sum = sum + item;
+                }
+
+                loop (sum < 100 and sum >= 0) {
+                    sum = sum + 1;
+                }
+
+                return sum;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("let mut i: i32 = 0;"));
+        assert!(result.contains("while i < 3"));
+        assert!(result.contains("i = i + 1;"));
+        assert!(result.contains("for item in (arr).iter().cloned()"));
+        assert!(result.contains("while sum < 100 && sum >= 0"));
     }
 
     #[test]

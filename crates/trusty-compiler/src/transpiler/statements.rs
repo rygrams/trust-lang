@@ -29,6 +29,12 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
                 Ok(format!("if {} {{\n{}\n}}", cond, cons))
             }
         }
+        Stmt::While(while_stmt) => transpile_while_stmt(while_stmt, scope),
+        Stmt::For(for_stmt) => transpile_for_stmt(for_stmt, scope),
+        Stmt::ForIn(for_in_stmt) => transpile_for_in_stmt(for_in_stmt, scope),
+        Stmt::ForOf(for_of_stmt) => transpile_for_of_stmt(for_of_stmt, scope),
+        Stmt::Break(_) => Ok("break;".to_string()),
+        Stmt::Continue(_) => Ok("continue;".to_string()),
         Stmt::Decl(Decl::Var(var_decl)) => {
             let is_mut = matches!(var_decl.kind, VarDeclKind::Var);
             let binding = if is_mut { "let mut" } else { "let" };
@@ -146,12 +152,151 @@ pub fn transpile_global_const(var_decl: &VarDecl) -> Result<Vec<String>> {
         let Some(init) = &decl.init else {
             continue;
         };
-        let val = transpile_expression(init, &scope)?;
+        let val = transpile_const_value(init, &scope)?;
 
         match type_ann {
+            Some(ty) if ty == "String" => parts.push(format!("const {}: &'static str = {};", name, val)),
             Some(ty) => parts.push(format!("const {}: {} = {};", name, ty, val)),
             None => parts.push(format!("const {}: i32 = {};", name, val)),
         }
     }
     Ok(parts)
+}
+
+fn transpile_const_value(expr: &Expr, scope: &Scope) -> Result<String> {
+    match expr {
+        Expr::Lit(Lit::Str(s)) => Ok(format!("\"{}\"", s.value.to_string_lossy())),
+        Expr::Lit(Lit::Num(n)) => Ok(n.value.to_string()),
+        Expr::Lit(Lit::Bool(b)) => Ok(b.value.to_string()),
+        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Minus) => {
+            let inner = transpile_const_value(&unary.arg, scope)?;
+            Ok(format!("-{}", inner))
+        }
+        _ => transpile_expression(expr, scope),
+    }
+}
+
+fn transpile_while_stmt(while_stmt: &WhileStmt, scope: &mut Scope) -> Result<String> {
+    let cond = transpile_expression(&while_stmt.test, scope)?;
+    let body = transpile_statement(&while_stmt.body, scope)?;
+    Ok(format!("while {} {{\n{}\n}}", cond, indent_block(&body, "    ")))
+}
+
+fn transpile_for_stmt(for_stmt: &ForStmt, scope: &mut Scope) -> Result<String> {
+    let init = match &for_stmt.init {
+        Some(VarDeclOrExpr::VarDecl(var_decl)) => {
+            transpile_statement(&Stmt::Decl(Decl::Var(Box::new((**var_decl).clone()))), scope)?
+        }
+        Some(VarDeclOrExpr::Expr(expr)) => format!("{};", transpile_expression(expr, scope)?),
+        None => String::new(),
+    };
+
+    let cond = match &for_stmt.test {
+        Some(test) => transpile_expression(test, scope)?,
+        None => "true".to_string(),
+    };
+
+    let update = match &for_stmt.update {
+        Some(update) => Some(format!("{};", transpile_expression(update, scope)?)),
+        None => None,
+    };
+
+    let body = transpile_statement(&for_stmt.body, scope)?;
+    let mut while_body = indent_block(&body, "    ");
+    if let Some(update) = update {
+        if !while_body.is_empty() {
+            while_body.push('\n');
+        }
+        while_body.push_str("    ");
+        while_body.push_str(&update);
+    }
+    let while_code = format!("while {} {{\n{}\n}}", cond, while_body);
+
+    if init.is_empty() {
+        Ok(while_code)
+    } else {
+        Ok(format!("{}\n{}", init, while_code))
+    }
+}
+
+fn transpile_for_in_stmt(for_in: &ForInStmt, scope: &mut Scope) -> Result<String> {
+    let (binding, prelude) = transpile_for_head_binding(&for_in.left, scope)?;
+    let right = transpile_expression(&for_in.right, scope)?;
+    let body = transpile_statement(&for_in.body, scope)?;
+    let for_code = format!(
+        "for {} in ({}).iter().cloned() {{\n{}\n}}",
+        binding,
+        right,
+        indent_block(&body, "    ")
+    );
+    if prelude.is_empty() {
+        Ok(for_code)
+    } else {
+        Ok(format!("{}\n{}", prelude, for_code))
+    }
+}
+
+fn transpile_for_of_stmt(for_of: &ForOfStmt, scope: &mut Scope) -> Result<String> {
+    let (binding, prelude) = transpile_for_head_binding(&for_of.left, scope)?;
+    let right = transpile_expression(&for_of.right, scope)?;
+    let body = transpile_statement(&for_of.body, scope)?;
+    let for_code = format!(
+        "for {} in ({}).iter().cloned() {{\n{}\n}}",
+        binding,
+        right,
+        indent_block(&body, "    ")
+    );
+    if prelude.is_empty() {
+        Ok(for_code)
+    } else {
+        Ok(format!("{}\n{}", prelude, for_code))
+    }
+}
+
+fn transpile_for_head_binding(head: &ForHead, scope: &mut Scope) -> Result<(String, String)> {
+    match head {
+        ForHead::VarDecl(var_decl) => {
+            if let Some(first) = var_decl.decls.first() {
+                if let Pat::Ident(ident) = &first.name {
+                    let name = ident.id.sym.to_string();
+                    if let Some(ann) = ident.type_ann.as_deref() {
+                        let ty = transpile_type_annotation(ann);
+                        scope.insert(name.clone(), ty);
+                    }
+                    if let Some(init) = &first.init {
+                        let init_expr = transpile_expression(init, scope)?;
+                        let prelude = format!("let mut {} = {};", name, init_expr);
+                        return Ok((name, prelude));
+                    }
+                    return Ok((name, String::new()));
+                }
+            }
+            Ok(("_item".to_string(), String::new()))
+        }
+        ForHead::Pat(pat) => match &**pat {
+            Pat::Ident(ident) => {
+                let name = ident.id.sym.to_string();
+                if let Some(ann) = ident.type_ann.as_deref() {
+                    let ty = transpile_type_annotation(ann);
+                    scope.insert(name.clone(), ty);
+                }
+                Ok((name, String::new()))
+            }
+            _ => Ok(("_item".to_string(), String::new())),
+        },
+        ForHead::UsingDecl(_) => Ok(("_item".to_string(), String::new())),
+    }
+}
+
+fn indent_block(block: &str, indent: &str) -> String {
+    block
+        .lines()
+        .map(|line| {
+            let mut s = String::with_capacity(indent.len() + line.len());
+            s.push_str(indent);
+            s.push_str(line);
+            s
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
