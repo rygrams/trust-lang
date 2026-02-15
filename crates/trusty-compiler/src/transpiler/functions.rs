@@ -1,7 +1,7 @@
 use super::scope::Scope;
 use super::statements::transpile_block_stmt;
 use super::types::*;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use swc_ecma_ast::*;
 
 pub fn transpile_function(func: &FnDecl) -> Result<String> {
@@ -9,12 +9,16 @@ pub fn transpile_function(func: &FnDecl) -> Result<String> {
     let mut scope = Scope::new();
     let params = transpile_params(&func.function.params, &mut scope)?;
     let return_type = transpile_return_type(&func.function.return_type)?;
-    let body = transpile_block(&func.function.body, &mut scope)?;
+    if func.function.is_async {
+        let body = transpile_async_block(&func.function.body, &mut scope)?;
+        return Ok(format!(
+            "fn {}({}) -> std::thread::JoinHandle<{}> {{\n    std::thread::spawn(move || {{\n{}\n    }})\n}}",
+            name, params, return_type, body
+        ));
+    }
 
-    Ok(format!(
-        "fn {}({}) -> {} {{\n{}\n}}",
-        name, params, return_type, body
-    ))
+    let body = transpile_block(&func.function.body, &mut scope)?;
+    Ok(format!("fn {}({}) -> {} {{\n{}\n}}", name, params, return_type, body))
 }
 
 pub fn transpile_impl_block(class_decl: &ClassDecl) -> Result<Option<String>> {
@@ -39,6 +43,9 @@ pub fn transpile_impl_block(class_decl: &ClassDecl) -> Result<Option<String>> {
 fn transpile_impl_method(method: &ClassMethod) -> Result<Option<String>> {
     if method.is_static {
         return Ok(None);
+    }
+    if method.function.is_async {
+        bail!("`async` methods in `implements` are not supported yet.");
     }
 
     let name = match &method.key {
@@ -108,6 +115,14 @@ fn transpile_return_type(return_type: &Option<Box<TsTypeAnn>>) -> Result<String>
 fn transpile_block(block: &Option<BlockStmt>, scope: &mut Scope) -> Result<String> {
     if let Some(block) = block {
         transpile_block_stmt(block, "    ", scope)
+    } else {
+        Ok(String::new())
+    }
+}
+
+fn transpile_async_block(block: &Option<BlockStmt>, scope: &mut Scope) -> Result<String> {
+    if let Some(block) = block {
+        transpile_block_stmt(block, "        ", scope)
     } else {
         Ok(String::new())
     }

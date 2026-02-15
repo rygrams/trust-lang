@@ -45,7 +45,7 @@ impl Backend {
         let keywords = [
             "function", "struct", "enum", "implements", "import", "export", "from", "val", "var", "const",
             "if", "else", "match", "default", "try", "catch", "finally", "for", "in", "of", "loop",
-            "break", "continue", "return", "throw", "and", "or",
+            "break", "continue", "return", "throw", "and", "or", "async", "await",
         ];
         let types = [
             "int", "int8", "int16", "int32", "int64", "float", "float32", "float64", "string", "boolean",
@@ -85,6 +85,8 @@ impl Backend {
             "const" => Some("`const`: global constant."),
             "match" => Some("`match (x) { pat => expr, default => expr }`: expression match."),
             "loop" => Some("`loop (cond) { ... }`: conditional loop."),
+            "async" => Some("`async function`: runs the function body in a thread and returns a handle."),
+            "await" => Some("`await handle`: waits for a spawned async handle (`join().unwrap()`)."),
             "string" => Some("`string(...)`: cast value to TRUST string."),
             "boolean" => Some("`boolean(...)`: cast value to TRUST boolean."),
             "int32" => Some("`int32`: 32-bit signed integer."),

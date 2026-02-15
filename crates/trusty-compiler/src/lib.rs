@@ -1142,6 +1142,26 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_async_await_thread_model() {
+        let trust_code = r#"
+            async function compute(n: int32): int32 {
+                return n + 1;
+            }
+
+            function main(): int32 {
+                val handle = compute(41);
+                val out = await handle;
+                return out;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("fn compute(n: i32) -> std::thread::JoinHandle<i32>"));
+        assert!(result.contains("std::thread::spawn(move || {"));
+        assert!(result.contains("let out = (handle).join().unwrap();"));
+    }
+
+    #[test]
     fn test_compile_try_catch_finally() {
         let trust_code = r#"
             function safe_div(a: int32, b: int32): int32 {

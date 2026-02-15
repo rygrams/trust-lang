@@ -55,6 +55,10 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
         Expr::Member(member) => transpile_member_access(member, scope),
         Expr::Assign(assign) => transpile_assign(assign, scope),
         Expr::Arrow(arrow) => transpile_arrow(arrow, scope),
+        Expr::Await(await_expr) => {
+            let awaited = transpile_expression(&await_expr.arg, scope)?;
+            Ok(format!("({}).join().unwrap()", awaited))
+        }
         Expr::Paren(paren) => transpile_expression(&paren.expr, scope),
         Expr::New(new_expr) => {
             if let Expr::Ident(ident) = &*new_expr.callee {
