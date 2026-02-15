@@ -28,8 +28,12 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
         match item {
             ModuleItem::ModuleDecl(ModuleDecl::Import(import_decl)) => {
                 let info = imports::transpile_import(import_decl)?;
-                use_statements.push(info.use_statement);
-                if let Some(name) = info.crate_name {
+                for stmt in info.use_statements {
+                    if !use_statements.contains(&stmt) {
+                        use_statements.push(stmt);
+                    }
+                }
+                for name in info.required_crates {
                     if !required_crates.contains(&name) {
                         required_crates.push(name);
                     }

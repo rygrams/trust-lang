@@ -33,6 +33,7 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
         Stmt::For(for_stmt) => transpile_for_stmt(for_stmt, scope),
         Stmt::ForIn(for_in_stmt) => transpile_for_in_stmt(for_in_stmt, scope),
         Stmt::ForOf(for_of_stmt) => transpile_for_of_stmt(for_of_stmt, scope),
+        Stmt::Try(try_stmt) => transpile_try_stmt(try_stmt, scope),
         Stmt::Break(_) => Ok("break;".to_string()),
         Stmt::Continue(_) => Ok("continue;".to_string()),
         Stmt::Decl(Decl::Var(var_decl)) => {
@@ -251,6 +252,55 @@ fn transpile_for_of_stmt(for_of: &ForOfStmt, scope: &mut Scope) -> Result<String
     } else {
         Ok(format!("{}\n{}", prelude, for_code))
     }
+}
+
+fn transpile_try_stmt(try_stmt: &TryStmt, scope: &mut Scope) -> Result<String> {
+    let mut try_scope = scope.clone();
+    let try_body = transpile_block_stmt(&try_stmt.block, "            ", &mut try_scope)?;
+
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("    let __trust_try_result: Result<(), String> = (|| -> Result<(), String> {\n");
+    out.push_str(&try_body);
+    if !try_body.is_empty() {
+        out.push('\n');
+    }
+    out.push_str("            Ok(())\n");
+    out.push_str("    })();\n");
+
+    if let Some(handler) = &try_stmt.handler {
+        let catch_name = match &handler.param {
+            Some(pat) => match pat {
+                Pat::Ident(ident) => ident.id.sym.to_string(),
+                _ => "_err".to_string(),
+            },
+            None => "_err".to_string(),
+        };
+
+        let mut catch_scope = scope.clone();
+        catch_scope.insert(catch_name.clone(), "String".to_string());
+        let catch_body = transpile_block_stmt(&handler.body, "        ", &mut catch_scope)?;
+        out.push_str(&format!("    if let Err({}) = __trust_try_result {{\n", catch_name));
+        out.push_str(&catch_body);
+        if !catch_body.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("    }\n");
+    } else {
+        out.push_str("    let _ = __trust_try_result;\n");
+    }
+
+    if let Some(finalizer) = &try_stmt.finalizer {
+        let mut final_scope = scope.clone();
+        let final_body = transpile_block_stmt(finalizer, "    ", &mut final_scope)?;
+        out.push_str(&final_body);
+        if !final_body.is_empty() {
+            out.push('\n');
+        }
+    }
+
+    out.push('}');
+    Ok(out)
 }
 
 fn transpile_for_head_binding(head: &ForHead, scope: &mut Scope) -> Result<(String, String)> {

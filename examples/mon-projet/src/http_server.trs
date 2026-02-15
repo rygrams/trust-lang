@@ -1,0 +1,12 @@
+import { Server, Response } from "tiny_http";
+
+function main() {
+    val server = Server.http("0.0.0.0:8080").unwrap();
+    console.write("HTTP server running on http://0.0.0.0:8080");
+
+    loop (true) {
+        val request = server.recv().unwrap();
+        val response = Response.from_string("Hello from TRUST HTTP server!\n");
+        request.respond(response).unwrap();
+    }
+}

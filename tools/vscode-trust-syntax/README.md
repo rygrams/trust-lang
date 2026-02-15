@@ -21,10 +21,18 @@ code --install-extension trust-lang-syntax-0.0.1.vsix
 ## Autocomplete
 
 The extension includes snippet-based autocomplete for common TRUST patterns:
-- `fn`, `main`, `if`, `ife`
+- `fn`, `main`, `if`, `ife`, `tern`, `match`
+- `try`, `tryf`
+- `forc`, `forin`, `forof`, `loop`
 - `val`, `var`, `const`
+- `imp`, `expfn`, `expconst`, `struct`, `expstruct`, `enum`, `impl`
 - `cw`
 - casts like `string`, `boolean`, `int32`, `float64`
+
+IntelliSense level:
+- Available now: snippet completion + VS Code word-based suggestions.
+- Not implemented yet: semantic completion (symbols/types across files), diagnostics, go-to-definition.
+- For full IntelliSense, a Language Server (LSP) is needed.
 
 ## Colors for types vs keywords
 

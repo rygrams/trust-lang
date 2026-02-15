@@ -55,6 +55,12 @@ Compile and run:
 trusty run hello.trs
 ```
 
+Struct example:
+
+```bash
+trusty run examples/struct-point.trs
+```
+
 ## Documentation
 
 See [docs/](./docs/) for more information.
@@ -63,6 +69,37 @@ See [docs/](./docs/) for more information.
 
 A minimal VS Code syntax extension for `.trs` is available in:
 `tools/vscode-trust-syntax`
+
+## LSP (IntelliSense)
+
+A minimal TRUST language server is available in:
+`crates/trusty-lsp`
+
+## Imports and Modules
+
+Current behavior is not full TypeScript module resolution.
+
+- `import { X } from "crate/path"` is transpiled to Rust `use crate::path::X;`
+- Local modules are supported with `./` and `../` in CLI build/check/run:
+  - `import { add } from "./math";`
+  - `import { Point } from "../models/point";`
+- Supported direct exports in local `.trs` files:
+  - `export const ...`
+  - `export function ...`
+  - `export struct ...`
+  - `export enum ...`
+  - `export implements Name { export function ... }`
+- External crates can be declared in `trusty.json` and used by `trusty build/run`
+- Not supported yet:
+  - `export * from "./x"`
+  - `export { a, b } from "./x"` / mapped export lists
+  - `export default ...`
+
+Try the module example:
+
+```bash
+trusty run examples/modules/main.trs
+```
 
 ## Development
 

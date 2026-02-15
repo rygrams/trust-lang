@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/trusty-compiler", "crates/trusty-cli"]
+exclude = ["crates/trusty-lsp"]
 
 # Dépendances partagées entre tous les crates
 [workspace.dependencies]

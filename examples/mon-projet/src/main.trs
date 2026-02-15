@@ -1,24 +1,11 @@
-const APP_NAME: string = "TRUST";
+import { BASE, add } from "./math";
+import { Point, makePoint } from "./point";
 
 function main() {
-    var raw: string = "  hello trust lang  ";
-    raw = raw.trim();
+    var p: Point = makePoint(1, 2);
+    val total: int32 = add(p.sum(), BASE);
 
-    val upper: string = raw.toUpperCase();
-    val lower: string = raw.toLowerCase();
-    val title: string = raw.replace("trust", "TRUST");
-    val short: string = raw.substring(0, 5);
-    val pieces = raw.split(" ");
-    val joined: string = raw.concat(" with ", APP_NAME);
-    val has_lang: boolean = boolean(raw.includes("lang"));
-    val check: string = string(has_lang);
-
-    console.write(raw);
-    console.write(upper);
-    console.write(lower);
-    console.write(title);
-    console.write(short);
-    console.write(joined);
-    console.write(check);
-    console.write(string(pieces.length));
+    console.write(total);
+    console.write(p.moveX(5));
+    console.write(string(boolean(BASE > 0 and p.sum() > 0)));
 }

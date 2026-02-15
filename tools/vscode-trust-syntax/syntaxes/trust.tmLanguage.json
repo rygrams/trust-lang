@@ -103,11 +103,11 @@
       "patterns": [
         {
           "name": "keyword.control.trust",
-          "match": "\\b(if|else|return|throw|wait|and|or)\\b"
+          "match": "\\b(if|else|return|throw|try|catch|finally|wait|match|default|for|in|of|loop|while|break|continue|and|or)\\b"
         },
         {
           "name": "keyword.declaration.trust",
-          "match": "\\b(function|struct|enum|implements|import|from|new)\\b"
+          "match": "\\b(function|struct|enum|implements|import|export|from|new)\\b"
         },
         {
           "name": "storage.modifier.trust",

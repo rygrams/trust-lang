@@ -1,0 +1,47 @@
+import { Instant, Duration, Date, Time, DateTime, sleep, compare, addDays, addMonths, addYears, subMinutes, subMonths, subYears } from "trusty:time";
+
+function main() {
+    console.write("=== trusty:time demo ===");
+
+    // Measure elapsed time
+    val start = Instant.now();
+    sleep(Duration.millis(300));
+    val elapsed = start.elapsed();
+    console.write(`Elapsed: ${elapsed.asMillis()} ms`);
+    console.write(`Elapsed (ns): ${elapsed.asNanos()} ns`);
+
+    // Duration constructors
+    val d_ms   = Duration.millis(1500);
+    val d_secs = Duration.seconds(2);
+    val d_mins = Duration.minutes(1);
+    val d_us   = Duration.micros(5000);
+
+    console.write(`1500 ms  → ${d_ms.asSeconds()} s`);
+    console.write(`2 s      → ${d_secs.asMillis()} ms`);
+    console.write(`1 min    → ${d_mins.asSeconds()} s`);
+    console.write(`5000 µs  → ${d_us.asMillis()} ms`);
+
+    // Short sleep then re-measure
+    val t2 = Instant.now();
+    sleep(Duration.millis(100));
+    val e2 = t2.elapsed();
+    console.write(`Short sleep: ${e2.asMillis()} ms`);
+
+    // Light date-fns style helpers
+    val now = DateTime.now();
+    val nextWeek = addDays(now, 7);
+    val nextMonth = addMonths(now, 1);
+    val lastYear = subYears(now, 1);
+    val earlier = subMinutes(now, 15);
+    console.write(`compare(earlier, nextWeek): ${compare(earlier, nextWeek)}`);
+    console.write(`compare(lastYear, nextMonth): ${compare(lastYear, nextMonth)}`);
+
+    val d = Date.fromYmd(2026, 2, 15).addMonths(1).subMonths(1).addYears(1).subYears(1).addDays(1);
+    val t = Time.fromHmsMilli(9, 30, 0, 0).addMinutes(45);
+    val dt = DateTime.fromParts(d, t);
+    console.write(`date iso: ${d.toIsoString()}`);
+    console.write(`time iso: ${t.toIsoString()}`);
+    console.write(`datetime iso: ${dt.toIsoString()}`);
+
+    console.write("Done.");
+}

@@ -1,5 +1,4 @@
 # Rust build output
-/target/
 **/*.rs.bk
 
 # Editor/IDE
@@ -8,6 +7,7 @@
 *.swp
 *.swo
 *~
+*.vsix
 
 # OS files
 .DS_Store
@@ -22,3 +22,5 @@ Thumbs.db
 
 # Keep Cargo.lock tracked for binaries/CLI
 #! Cargo.lock
+target/
+build/

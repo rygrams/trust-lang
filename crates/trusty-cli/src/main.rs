@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use trusty_compiler;
@@ -180,8 +180,7 @@ fn build_file(
 ) -> Result<PathBuf> {
     println!("🔨 Building {}...", input.display());
 
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read {}", input.display()))?;
+    let source = resolve_and_bundle_modules(input)?;
 
     let transpile_output = trusty_compiler::compile_full(&source)?;
 
@@ -268,7 +267,7 @@ fn compile_with_cargo(
     }
 
     let cargo_toml = format!(
-        "[package]\nname = \"{stem}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{deps_toml}"
+        "[package]\nname = \"{stem}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{deps_toml}\n[workspace]\n"
     );
     fs::write(cargo_project.join("Cargo.toml"), &cargo_toml)?;
 
@@ -324,10 +323,150 @@ fn run_file(input: &PathBuf, release: bool) -> Result<()> {
 fn check_file(input: &PathBuf) -> Result<()> {
     println!("🔍 Checking {}...", input.display());
 
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read {}", input.display()))?;
+    let source = resolve_and_bundle_modules(input)?;
     let _ = trusty_compiler::compile(&source)?;
 
     println!("✅ No errors found");
     Ok(())
+}
+
+// ─── local module resolver (TRUST files) ────────────────────────────────────
+
+fn resolve_and_bundle_modules(entry: &Path) -> Result<String> {
+    let entry = entry
+        .canonicalize()
+        .with_context(|| format!("Failed to resolve {}", entry.display()))?;
+
+    let mut seen = HashSet::new();
+    let mut stack = Vec::new();
+    resolve_module_file(&entry, &mut seen, &mut stack)
+}
+
+fn resolve_module_file(
+    file: &Path,
+    seen: &mut HashSet<PathBuf>,
+    stack: &mut Vec<PathBuf>,
+) -> Result<String> {
+    let canonical = file
+        .canonicalize()
+        .with_context(|| format!("Failed to resolve {}", file.display()))?;
+
+    if seen.contains(&canonical) {
+        return Ok(String::new());
+    }
+
+    if stack.contains(&canonical) {
+        let chain = stack
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        bail!("Circular local import detected: {} -> {}", chain, canonical.display());
+    }
+    stack.push(canonical.clone());
+
+    let source = fs::read_to_string(&canonical)
+        .with_context(|| format!("Failed to read {}", canonical.display()))?;
+
+    let mut dep_code = String::new();
+    let mut body_lines = Vec::new();
+    let base_dir = canonical.parent().unwrap_or_else(|| Path::new("."));
+
+    for line in source.lines() {
+        if let Some(import_path) = parse_local_import_path(line) {
+            let dep_file = resolve_local_import_target(base_dir, &import_path)?;
+            let child = resolve_module_file(&dep_file, seen, stack)?;
+            if !child.trim().is_empty() {
+                dep_code.push_str(&child);
+                if !dep_code.ends_with('\n') {
+                    dep_code.push('\n');
+                }
+            }
+            continue;
+        }
+        body_lines.push(line.to_string());
+    }
+
+    let body = body_lines.join("\n");
+    let rewritten = rewrite_export_declarations(&body)
+        .with_context(|| format!("In module {}", canonical.display()))?;
+
+    stack.pop();
+    seen.insert(canonical.clone());
+
+    let mut out = String::new();
+    out.push_str(&dep_code);
+    out.push_str(&format!("// --- module: {} ---\n", canonical.display()));
+    out.push_str(&rewritten);
+    out.push('\n');
+    Ok(out)
+}
+
+fn parse_local_import_path(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with("import ") {
+        return None;
+    }
+    let from_idx = trimmed.find(" from ")?;
+    let after_from = trimmed[from_idx + " from ".len()..].trim();
+    let quote = after_from.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let rest = &after_from[1..];
+    let end = rest.find(quote)?;
+    let path = &rest[..end];
+    if path.starts_with("./") || path.starts_with("../") {
+        Some(path.to_string())
+    } else {
+        None
+    }
+}
+
+fn resolve_local_import_target(base_dir: &Path, import_path: &str) -> Result<PathBuf> {
+    let candidate = base_dir.join(import_path);
+    let mut tries = Vec::new();
+
+    tries.push(candidate.clone());
+    if candidate.extension().is_none() {
+        tries.push(candidate.with_extension("trs"));
+        tries.push(candidate.join("index.trs"));
+    }
+
+    for t in tries {
+        if t.exists() {
+            return Ok(t);
+        }
+    }
+
+    bail!(
+        "Cannot resolve local import '{}' from {}",
+        import_path,
+        base_dir.display()
+    )
+}
+
+fn rewrite_export_declarations(source: &str) -> Result<String> {
+    let mut out = Vec::new();
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("export ") {
+            let allowed = rest.starts_with("function ")
+                || rest.starts_with("const ")
+                || rest.starts_with("struct ")
+                || rest.starts_with("enum ")
+                || rest.starts_with("implements ");
+            if !allowed {
+                bail!(
+                    "Unsupported export syntax: '{}'. Supported: export function/const/struct/enum/implements",
+                    trimmed
+                );
+            }
+            let indent = &line[..line.len() - trimmed.len()];
+            out.push(format!("{}{}", indent, rest));
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    Ok(out.join("\n"))
 }

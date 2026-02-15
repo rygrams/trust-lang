@@ -1,5 +1,6 @@
 use super::scope::{is_pointer, is_threaded, Scope};
 use super::statements::transpile_block_stmt;
+use crate::stdlib::time as stdlib_time;
 use anyhow::Result;
 use swc_ecma_ast::*;
 
@@ -271,6 +272,9 @@ fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
             Expr::Member(member) => transpile_member_call(member, &call.args, scope),
             Expr::Ident(ident) => {
                 let func_name = ident.sym.to_string();
+                if let Some(ctor_expr) = transpile_struct_constructor_call(&func_name, &call.args, scope)? {
+                    return Ok(ctor_expr);
+                }
                 if let Some(cast_expr) = transpile_builtin_cast_call(&func_name, &call.args, scope)? {
                     return Ok(cast_expr);
                 }
@@ -285,6 +289,45 @@ fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
         },
         _ => Ok("unknown_callee".to_string()),
     }
+}
+
+fn transpile_struct_constructor_call(func_name: &str, args: &[ExprOrSpread], scope: &Scope) -> Result<Option<String>> {
+    let Some(first) = func_name.chars().next() else {
+        return Ok(None);
+    };
+    if !first.is_uppercase() || args.len() != 1 {
+        return Ok(None);
+    }
+
+    let Expr::Object(obj) = &*args[0].expr else {
+        return Ok(None);
+    };
+
+    let mut fields = Vec::new();
+    for prop in &obj.props {
+        let PropOrSpread::Prop(prop) = prop else {
+            return Ok(None);
+        };
+        match &**prop {
+            Prop::KeyValue(kv) => {
+                let key = match &kv.key {
+                    PropName::Ident(id) => id.sym.to_string(),
+                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                    PropName::Num(n) => n.value.to_string(),
+                    _ => return Ok(None),
+                };
+                let val = transpile_expression(&kv.value, scope)?;
+                fields.push(format!("{}: {}", key, val));
+            }
+            Prop::Shorthand(id) => {
+                let key = id.sym.to_string();
+                fields.push(format!("{}: {}", key, key));
+            }
+            _ => return Ok(None),
+        }
+    }
+
+    Ok(Some(format!("{} {{ {} }}", func_name, fields.join(", "))))
 }
 
 fn transpile_builtin_cast_call(func_name: &str, args: &[ExprOrSpread], scope: &Scope) -> Result<Option<String>> {
@@ -553,11 +596,23 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         _ => {}
     }
 
-    // Uppercase object = Rust type → use `::` (e.g. Instant::now())
-    let separator = if obj.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
-        "::"
-    } else {
-        "."
+    // ── trusty:time — Duration static constructors ────────────────────────────
+    if obj == "Duration" && arg_strs.len() == 1 {
+        if let Some(mapped) = stdlib_time::map_duration_constructor(&prop, &arg_strs[0]) {
+            return Ok(mapped);
+        }
+    }
+
+    // ── trusty:time — duration / instant instance methods ────────────────────
+    if let Some(rust_method) = stdlib_time::map_instance_method(&prop) {
+        return Ok(format!("{}.{}()", obj, rust_method));
+    }
+
+    // Uppercase identifier object = Rust type → use `::` (e.g. Instant::now(), Server::http())
+    // But only for direct identifier references, not chained calls (e.g. foo().unwrap() uses `.`)
+    let separator = match &*member.obj {
+        Expr::Ident(ident) if ident.sym.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => "::",
+        _ => ".",
     };
     Ok(format!("{}{}{}({})", obj, separator, prop, arg_strs.join(", ")))
 }

@@ -1,5 +1,6 @@
 pub mod codegen;
 pub mod parser;
+pub mod stdlib;
 pub mod transpiler;
 
 use anyhow::Result;
@@ -1037,6 +1038,54 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_try_catch_finally() {
+        let trust_code = r#"
+            function safe_div(a: int32, b: int32): int32 {
+                var out: int32 = 0;
+                try {
+                    if (b == 0) {
+                        throw "division by zero";
+                    }
+                    out = a / b;
+                } catch (e) {
+                    console.write(e);
+                    out = -1;
+                } finally {
+                    console.write("done");
+                }
+                return out;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("let __trust_try_result: Result<(), String>"));
+        assert!(result.contains("if let Err(e) = __trust_try_result"));
+        assert!(result.contains("return Err(\"division by zero\".to_string());"));
+        assert!(result.contains("println!(\"{}\", e);"));
+        assert!(result.contains("println!(\"{}\", \"done\".to_string());"));
+    }
+
+    #[test]
+    fn test_compile_struct_constructor_call_style() {
+        let trust_code = r#"
+            struct Point {
+                x: int32;
+                y: int32;
+            }
+
+            function make(): Point {
+                val p: Point = Point({ x: 1, y: 2 });
+                return p;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("struct Point"));
+        assert!(result.contains("let p: Point = Point { x: 1, y: 2 };"));
+        assert!(result.contains("return p;"));
+    }
+
+    #[test]
     fn test_compile_import() {
         let trust_code = r#"
             import { Serialize, Deserialize } from "serde";
@@ -1071,5 +1120,74 @@ mod tests {
         assert!(result.contains("self.name.to_uppercase()"));
         assert!(result.contains("fn rename(&mut self, newName: String) -> ()"));
         assert!(result.contains("self.name = newName;"));
+    }
+
+    #[test]
+    fn test_compile_trusty_time_light_date_fns_helpers() {
+        let trust_code = r#"
+            import { DateTime, compare, addDays, addMonths, addYears, addMinutes, addSeconds, subDays, subMonths, subYears, subMinutes, subSeconds } from "trusty:time";
+
+            function demo(): int32 {
+                val now = DateTime.now();
+                val a = addDays(now, 2);
+                val b = addMinutes(a, 30);
+                val c = addSeconds(b, 15);
+                val d = addMonths(c, 2);
+                val e = addYears(d, 1);
+                val f = subDays(e, 1);
+                val g = subMonths(f, 1);
+                val h = subYears(g, 1);
+                val i = subMinutes(h, 10);
+                val j = subSeconds(i, 5);
+                return compare(now, j);
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("use std::time::{Instant, Duration, SystemTime as RustSystemTime};"));
+        assert!(result.contains("fn compare(a: DateTime, b: DateTime) -> i32"));
+        assert!(result.contains("fn addDays(dateTime: DateTime, days: i32) -> DateTime"));
+        assert!(result.contains("fn addMonths(dateTime: DateTime, months: i32) -> DateTime"));
+        assert!(result.contains("fn addYears(dateTime: DateTime, years: i32) -> DateTime"));
+        assert!(result.contains("fn subSeconds(dateTime: DateTime, seconds: i32) -> DateTime"));
+        assert!(result.contains("fn subMonths(dateTime: DateTime, months: i32) -> DateTime"));
+        assert!(result.contains("fn subYears(dateTime: DateTime, years: i32) -> DateTime"));
+        assert!(result.contains("let now = DateTime::now();"));
+        assert!(result.contains("let a = addDays(now, 2);"));
+        assert!(result.contains("let d = addMonths(c, 2);"));
+        assert!(result.contains("let e = addYears(d, 1);"));
+        assert!(result.contains("let g = subMonths(f, 1);"));
+        assert!(result.contains("let h = subYears(g, 1);"));
+        assert!(result.contains("let j = subSeconds(i, 5);"));
+        assert!(result.contains("return compare(now, j);"));
+    }
+
+    #[test]
+    fn test_compile_trusty_time_date_time_datetime_helpers() {
+        let trust_code = r#"
+            import { Date, Time, DateTime } from "trusty:time";
+
+            function demo(): string {
+                val d = Date.fromYmd(2026, 2, 15).addMonths(1).addYears(1).subMonths(1).subYears(1).addDays(3);
+                val t = Time.fromHmsMilli(10, 30, 0, 250).subMinutes(45);
+                val dt = DateTime.fromParts(d, t).addMonths(2).addYears(1).subMonths(1).subYears(1).addHours(2).startOfDay();
+                val ds = d.toIsoString();
+                val ts = t.toIsoString();
+                val dts = dt.toIsoString();
+                return `${ds}|${ts}|${dts}`;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("pub struct Date"));
+        assert!(result.contains("pub struct Time"));
+        assert!(result.contains("pub struct DateTime"));
+        assert!(result.contains("let d = Date::fromYmd(2026, 2, 15).addMonths(1).addYears(1).subMonths(1).subYears(1).addDays(3);"));
+        assert!(result.contains("let t = Time::fromHmsMilli(10, 30, 0, 250).subMinutes(45);"));
+        assert!(result.contains("let dt = DateTime::fromParts(d, t).addMonths(2).addYears(1).subMonths(1).subYears(1).addHours(2).startOfDay();"));
+        assert!(result.contains("let ds = d.toIsoString();"));
+        assert!(result.contains("let ts = t.toIsoString();"));
+        assert!(result.contains("let dts = dt.toIsoString();"));
+        assert!(result.contains("return format!(\"{}|{}|{}\", ds, ts, dts);"));
     }
 }

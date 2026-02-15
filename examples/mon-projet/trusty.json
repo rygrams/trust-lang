@@ -1,5 +1,7 @@
 {
-  "dependencies": {},
+  "dependencies": {
+    "tiny_http": "0.12"
+  },
   "name": "mon-projet",
   "version": "0.1.0"
 }

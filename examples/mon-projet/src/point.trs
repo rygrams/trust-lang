@@ -1,0 +1,20 @@
+export struct Point {
+    x: int32;
+    y: int32;
+}
+
+export function makePoint(x: int32, y: int32): Point {
+    val p: Point = Point({ x: x, y: y });
+    return p;
+}
+
+export implements Point {
+    export function sum(): int32 {
+        return this.x + this.y;
+    }
+
+    export function moveX(dx: int32): int32 {
+        this.x = this.x + dx;
+        return this.x;
+    }
+}
