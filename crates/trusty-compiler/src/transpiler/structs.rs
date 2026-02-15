@@ -2,7 +2,7 @@ use super::types::transpile_type_annotation;
 use anyhow::Result;
 use swc_ecma_ast::*;
 
-pub fn transpile_interface(decl: &TsInterfaceDecl) -> Result<String> {
+pub fn transpile_interface(decl: &TsInterfaceDecl, json_enabled: bool) -> Result<String> {
     let name = decl.id.sym.to_string();
     let mut fields = Vec::new();
 
@@ -29,9 +29,11 @@ pub fn transpile_interface(decl: &TsInterfaceDecl) -> Result<String> {
         }
     }
 
-    Ok(format!(
-        "#[derive(Debug, Clone)]\nstruct {} {{\n{},\n}}",
-        name,
-        fields.join(",\n")
-    ))
+    let derives = if json_enabled {
+        "#[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]"
+    } else {
+        "#[derive(Debug, Clone)]"
+    };
+
+    Ok(format!("{}\nstruct {} {{\n{},\n}}", derives, name, fields.join(",\n")))
 }

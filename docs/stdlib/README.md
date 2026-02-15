@@ -18,7 +18,7 @@ import { ... } from "trusty:<module>";
 | `trusty:io` | 🔜 Planned | stdin, stdout, stderr |
 | `trusty:env` | 🔜 Planned | Environment variables, CLI args |
 | `trusty:path` | 🔜 Planned | Path manipulation |
-| `trusty:json` | 🔜 Planned | JSON parse/stringify |
+| `trusty:json` | ✅ Implemented | JSON parse/stringify (`parseToJSON`, `stringify`, `toJSON`, `fromJSON`) |
 | `trusty:rand` | 🔜 Planned | Random numbers, distributions |
 | `trusty:math` | 🔜 Planned | sqrt, abs, min, max, clamp, trig |
 | `trusty:bd` | 🔜 Planned | SQL (SQLite/Postgres/MySQL), ORM |

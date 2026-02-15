@@ -166,7 +166,7 @@ pub fn transpile_global_const(var_decl: &VarDecl) -> Result<Vec<String>> {
 
 fn transpile_const_value(expr: &Expr, scope: &Scope) -> Result<String> {
     match expr {
-        Expr::Lit(Lit::Str(s)) => Ok(format!("\"{}\"", s.value.to_string_lossy())),
+        Expr::Lit(Lit::Str(s)) => Ok(format!("{:?}", s.value.to_string_lossy())),
         Expr::Lit(Lit::Num(n)) => Ok(n.value.to_string()),
         Expr::Lit(Lit::Bool(b)) => Ok(b.value.to_string()),
         Expr::Unary(unary) if matches!(unary.op, UnaryOp::Minus) => {

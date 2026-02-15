@@ -1,0 +1,19 @@
+import { toJSON, fromJSON, parseToJSON } from "trusty:json";
+
+struct User {
+    id: int32;
+    name: string;
+    active: boolean;
+}
+
+function main() {
+    val u: User = User({ id: 1, name: "Ryan", active: true });
+    val json = toJSON(u);
+    console.write(json);
+
+    val restored: User = fromJSON(json);
+    console.write(restored.name);
+
+    val raw = parseToJSON("{\"ok\":true,\"count\":2}");
+    console.write(toJSON(raw));
+}

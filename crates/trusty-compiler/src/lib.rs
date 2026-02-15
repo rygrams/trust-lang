@@ -1221,6 +1221,50 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_trusty_json_struct_serde() {
+        let trust_code = r#"
+            import { toJSON, fromJSON } from "trusty:json";
+
+            struct User {
+                id: int32;
+                name: string;
+            }
+
+            function roundtrip(): string {
+                val u: User = User({ id: 1, name: "Alice" });
+                val json = toJSON(u);
+                val u2: User = fromJSON(json);
+                return u2.name;
+            }
+        "#;
+
+        let output = compile_full(trust_code).unwrap();
+        assert!(output
+            .rust_code
+            .contains("#[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]"));
+        assert!(output.rust_code.contains("pub fn toJSON<T: serde::Serialize>(value: T) -> String"));
+        assert!(output
+            .rust_code
+            .contains("pub fn fromJSON<T: serde::de::DeserializeOwned>(json: String) -> T"));
+        assert!(output.required_crates.contains(&"serde".to_string()));
+        assert!(output.required_crates.contains(&"serde_derive".to_string()));
+        assert!(output.required_crates.contains(&"serde_json".to_string()));
+    }
+
+    #[test]
+    fn test_compile_string_literal_escapes_quotes() {
+        let trust_code = r#"
+            function main() {
+                val s = "{\"ok\":true,\"count\":2}";
+                console.write(s);
+            }
+        "#;
+
+        let output = compile(trust_code).unwrap();
+        assert!(output.contains("\"{\\\"ok\\\":true,\\\"count\\\":2}\".to_string()"));
+    }
+
+    #[test]
     fn test_compile_implements_block() {
         let trust_code = r#"
             struct User {

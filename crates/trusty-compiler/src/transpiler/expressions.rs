@@ -31,7 +31,10 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
         Expr::This(_) => Ok("self".to_string()),
         Expr::Lit(lit) => match lit {
             Lit::Num(num) => Ok(num.value.to_string()),
-            Lit::Str(s) => Ok(format!("\"{}\".to_string()", s.value.to_string_lossy())),
+            Lit::Str(s) => Ok(format!(
+                "{}.to_string()",
+                rust_string_literal(&s.value.to_string_lossy())
+            )),
             Lit::Bool(b) => Ok(b.value.to_string()),
             _ => Ok("unknown_literal".to_string()),
         },
@@ -254,6 +257,10 @@ fn ident_name(expr: &Expr) -> Option<String> {
         Expr::Ident(ident) => Some(ident.sym.to_string()),
         _ => None,
     }
+}
+
+fn rust_string_literal(value: &str) -> String {
+    format!("{:?}", value)
 }
 
 fn transpile_template_literal(tpl: &Tpl, scope: &Scope) -> Result<String> {

@@ -24,29 +24,39 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
     let mut function_code: Vec<String> = Vec::new();
     let mut required_crates: Vec<String> = Vec::new();
     let mut module_aliases: Vec<String> = Vec::new();
+    let mut json_enabled = false;
 
+    // Pass 1: imports
     for item in &module.body {
-        match item {
-            ModuleItem::ModuleDecl(ModuleDecl::Import(import_decl)) => {
-                let info = imports::transpile_import(import_decl)?;
-                for stmt in info.use_statements {
-                    if !use_statements.contains(&stmt) {
-                        use_statements.push(stmt);
-                    }
-                }
-                for name in info.required_crates {
-                    if !required_crates.contains(&name) {
-                        required_crates.push(name);
-                    }
-                }
-                for alias in info.module_aliases {
-                    if !module_aliases.contains(&alias) {
-                        module_aliases.push(alias);
-                    }
+        if let ModuleItem::ModuleDecl(ModuleDecl::Import(import_decl)) = item {
+            let info = imports::transpile_import(import_decl)?;
+            for stmt in info.use_statements {
+                if !use_statements.contains(&stmt) {
+                    use_statements.push(stmt);
                 }
             }
+            for name in info.required_crates {
+                if !required_crates.contains(&name) {
+                    required_crates.push(name);
+                }
+            }
+            for alias in info.module_aliases {
+                if !module_aliases.contains(&alias) {
+                    module_aliases.push(alias);
+                }
+            }
+            if import_decl.src.value.to_string_lossy().as_ref() == "trusty:json" {
+                json_enabled = true;
+            }
+        }
+    }
+
+    // Pass 2: declarations and executable code
+    for item in &module.body {
+        match item {
+            ModuleItem::ModuleDecl(ModuleDecl::Import(_)) => {}
             ModuleItem::Stmt(Stmt::Decl(Decl::TsInterface(interface_decl))) => {
-                let struct_code = structs::transpile_interface(interface_decl)?;
+                let struct_code = structs::transpile_interface(interface_decl, json_enabled)?;
                 type_decls.push(struct_code);
             }
             ModuleItem::Stmt(Stmt::Decl(Decl::TsEnum(enum_decl))) => {
