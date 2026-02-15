@@ -63,21 +63,24 @@ pub fn compile_formatted(source: &str) -> Result<String>
 
 ### Type Mapping (`types.rs`)
 
-| TypeScript     | Rust   |
+| TRUST          | Rust   |
 |---------------|--------|
-| `number`      | `i32`  |
-| `number8`     | `i8`   |
-| `number16`    | `i16`  |
-| `number64`    | `i64`  |
+| `int`         | `i32`  |
+| `int8`        | `i8`   |
+| `int16`       | `i16`  |
+| `int32`       | `i32`  |
+| `int64`       | `i64`  |
+| `float`       | `f64`  |
 | `float32`     | `f32`  |
 | `float64`     | `f64`  |
+| `number`      | `i32` (deprecated alias) |
 | `string`      | `String` |
 | `boolean`     | `bool` |
 
 ### Notable Transpilation Behaviors
 
 - Template literals (`` `Hello, ${name}!` ``) → `format!("Hello, {}!", name)`
-- `console.log(...)` → `println!(...)`
+- `console.write(...)` → `println!(...)`
 - Other member expression calls → `.method()` Rust calls
 
 ### Current Limitations

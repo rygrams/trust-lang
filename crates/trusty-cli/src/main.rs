@@ -108,7 +108,7 @@ fn create_project(name: &str) -> Result<()> {
 
     fs::write(
         root.join("src").join("main.trs"),
-        "function main() {\n    console.log(\"Hello from TRUST!\");\n}\n",
+        "function main() {\n    console.write(\"Hello from TRUST!\");\n}\n",
     )?;
 
     fs::write(root.join(".gitignore"), "build/\n")?;
@@ -121,12 +121,13 @@ fn create_project(name: &str) -> Result<()> {
 
 // ─── build helpers ───────────────────────────────────────────────────────────
 
-/// Returns the `build/` directory next to the input file, creating it if needed.
+/// Returns the project-level `build/` directory (next to `src/`) when `trusty.json` exists.
+/// Falls back to a local `build/` next to the input file otherwise.
 fn build_dir(input: &Path) -> Result<PathBuf> {
-    let dir = input
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("build");
+    let parent = input.parent().unwrap_or_else(|| Path::new("."));
+    let dir = find_manifest(parent)
+        .and_then(|manifest| manifest.parent().map(|p| p.join("build")))
+        .unwrap_or_else(|| parent.join("build"));
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create build directory: {}", dir.display()))?;
     Ok(dir)

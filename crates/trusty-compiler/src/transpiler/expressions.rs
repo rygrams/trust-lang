@@ -233,13 +233,19 @@ fn transpile_builtin_cast_call(func_name: &str, args: &[ExprOrSpread], scope: &S
     }
 
     let rust_num = match func_name {
-        "number8" | "Number8" => Some("i8"),
-        "number16" | "Number16" => Some("i16"),
-        "number32" | "Number32" => Some("i32"),
-        "number64" | "Number64" => Some("i64"),
-        "float32" | "Float32" => Some("f32"),
-        "float64" | "Float64" => Some("f64"),
-        "number" | "Number" => Some("i32"),
+        "int8" => Some("i8"),
+        "int16" => Some("i16"),
+        "int32" => Some("i32"),
+        "int64" => Some("i64"),
+        "int" => Some("i32"),
+        "number8" => Some("i8"),
+        "number16" => Some("i16"),
+        "number32" => Some("i32"),
+        "number64" => Some("i64"),
+        "float32" => Some("f32"),
+        "float64" => Some("f64"),
+        "float" => Some("f64"),
+        "number" => Some("i32"),
         _ => None,
     };
     let Some(rust_num) = rust_num else {
@@ -281,7 +287,7 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         return Ok(format!("std::thread::spawn({})", arg_strs?.join(", ")));
     }
 
-    if obj == "console" && prop == "log" {
+    if obj == "console" && prop == "write" {
         let arg_strs: Result<Vec<String>> = args
             .iter()
             .map(|arg| transpile_expression(&arg.expr, scope))

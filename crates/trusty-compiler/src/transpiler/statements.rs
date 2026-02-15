@@ -30,6 +30,8 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
             }
         }
         Stmt::Decl(Decl::Var(var_decl)) => {
+            let is_mut = matches!(var_decl.kind, VarDeclKind::Var);
+            let binding = if is_mut { "let mut" } else { "let" };
             let mut parts = Vec::new();
             for decl in &var_decl.decls {
                 let name = match &decl.name {
@@ -84,8 +86,8 @@ pub fn transpile_statement(stmt: &Stmt, scope: &mut Scope) -> Result<String> {
                     };
 
                     match &type_ann {
-                        Some(ty) => parts.push(format!("let {}: {} = {};", name, ty, val)),
-                        None => parts.push(format!("let {} = {};", name, val)),
+                        Some(ty) => parts.push(format!("{} {}: {} = {};", binding, name, ty, val)),
+                        None => parts.push(format!("{} {} = {};", binding, name, val)),
                     }
                 }
             }
@@ -120,4 +122,36 @@ pub fn transpile_block_stmt(block: &BlockStmt, indent: &str, scope: &mut Scope) 
         result.push(format!("{}{}", indent, stmt_str));
     }
     Ok(result.join("\n"))
+}
+
+pub fn transpile_global_const(var_decl: &VarDecl) -> Result<Vec<String>> {
+    if !matches!(var_decl.kind, VarDeclKind::Const) {
+        return Ok(Vec::new());
+    }
+
+    let scope = Scope::new();
+    let mut parts = Vec::new();
+    for decl in &var_decl.decls {
+        let (name, type_ann) = match &decl.name {
+            Pat::Ident(ident) => (
+                ident.id.sym.to_string(),
+                ident
+                    .type_ann
+                    .as_deref()
+                    .map(|ann| transpile_type_annotation(ann)),
+            ),
+            _ => continue,
+        };
+
+        let Some(init) = &decl.init else {
+            continue;
+        };
+        let val = transpile_expression(init, &scope)?;
+
+        match type_ann {
+            Some(ty) => parts.push(format!("const {}: {} = {};", name, ty, val)),
+            None => parts.push(format!("const {}: i32 = {};", name, val)),
+        }
+    }
+    Ok(parts)
 }

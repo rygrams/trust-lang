@@ -45,7 +45,7 @@ function greet(name: string): string {
 }
 
 function main() {
-  console.log(greet("World"));
+  console.write(greet("World"));
 }
 ```
 
@@ -58,6 +58,11 @@ trusty run hello.trs
 ## Documentation
 
 See [docs/](./docs/) for more information.
+
+## VS Code Syntax Highlighting
+
+A minimal VS Code syntax extension for `.trs` is available in:
+`tools/vscode-trust-syntax`
 
 ## Development
 
@@ -73,7 +78,7 @@ cargo build --workspace
 cargo test --workspace
 
 # Run CLI
-cargo run -p trusty-cli -- examples/fibonacci.trs
+cargo run -p trusty-cli -- examples/main.trs
 ```
 
 ## Project Structure

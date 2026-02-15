@@ -1,30 +1,43 @@
-import { Instant } from "std/time";
+const BASE: int32 = 100;
 
-function fibonacci(n: number32): number32 {
-    if (n <= 1) {
-        return n;
-    }
-    return fibonacci(n - 1) + fibonacci(n - 2);
+function add(a: int32, b: int32): int32 {
+    return a + b;
+}
+
+function sub(a: int32, b: int32): int32 {
+    return a - b;
+}
+
+function multiply(a: int32, b: int32): int32 {
+    return a * b;
+}
+
+function divide(a: int32, b: int32): int32 {
+    return a / b;
 }
 
 function main() {
-    let start0 = Instant.now();
-    let r0 = fibonacci(0);
-    let e0 = start0.elapsed().as_millis();
-    console.log(`fibonacci(0) = ${r0} [${e0}ms]`);
+    val a: int32 = 20;
+    val b: int32 = 8;
 
-    let start1 = Instant.now();
-    let r1 = fibonacci(1);
-    let e1 = start1.elapsed().as_millis();
-    console.log(`fibonacci(1) = ${r1} [${e1}ms]`);
+    val sum = add(a, b);
+    val diff = sub(a, b);
+    val product = multiply(a, b);
+    val quotient = divide(a, b);
+    val mixed = add(sum, sub(BASE, 25));
+    val from_text: int32 = int32("42");
+    val as_float: float64 = float64(sum);
+    val pi: float = 3.5;
 
-    let start5 = Instant.now();
-    let r5 = fibonacci(5);
-    let e5 = start5.elapsed().as_millis();
-    console.log(`fibonacci(5) = ${r5} [${e5}ms]`);
+    var float_total: float = as_float + pi;
+    float_total = float_total + float(1.25);
 
-    let start40 = Instant.now();
-    let r40 = fibonacci(40);
-    let e40 = start40.elapsed().as_millis();
-    console.log(`fibonacci(40) = ${r40} [${e40}ms]`);
+    console.write(sum);
+    console.write(diff);
+    console.write(mixed);
+    console.write(product);
+    console.write(quotient);
+    console.write(from_text);
+    console.write(as_float);
+    console.write(float_total);
 }

@@ -13,14 +13,37 @@ pub fn compile(source: &str) -> Result<String> {
 
 /// Transpile TRUST source and return Rust code + required external crates.
 pub fn compile_full(source: &str) -> Result<TranspileOutput> {
+    warn_on_deprecated_number_alias(source);
     let preprocessed = preprocess(source);
     let ast = parser::parse_typescript(&preprocessed)?;
     transpiler::transpile_to_rust(&ast)
 }
 
+fn warn_on_deprecated_number_alias(source: &str) {
+    if !contains_identifier(source, "number") {
+        return;
+    }
+    eprintln!("⚠️  Deprecated type alias `number` detected. Prefer `int` (or `int32`) / `float`.");
+}
+
+fn contains_identifier(source: &str, needle: &str) -> bool {
+    let mut ident = String::new();
+    for ch in source.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            ident.push(ch);
+        } else {
+            if ident == needle {
+                return true;
+            }
+            ident.clear();
+        }
+    }
+    ident == needle
+}
+
 /// Rewrite TRUST-specific keywords to valid TypeScript before SWC parsing.
 fn preprocess(source: &str) -> String {
-    rewrite_implements_blocks(source)
+    rewrite_val_declarations(&rewrite_implements_blocks(source))
         .replace("struct ", "interface ")
         .lines()
         .map(|line| {
@@ -30,6 +53,23 @@ fn preprocess(source: &str) -> String {
                 let indent = &line[..line.len() - trimmed.len()];
                 let rest = rest.trim_end_matches(';').trim();
                 format!("{}({}).join().unwrap();", indent, rest)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn rewrite_val_declarations(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("val ") || trimmed.starts_with("val\t") {
+                let indent = &line[..line.len() - trimmed.len()];
+                let rest = trimmed[3..].trim_start();
+                format!("{}let {}", indent, rest)
             } else {
                 line.to_string()
             }
@@ -332,13 +372,15 @@ mod tests {
     #[test]
     fn test_compile_builtin_cast_calls() {
         let trust_code = r#"
-            function cast_all(a: number64, s: string, pn: Pointer<number32>, ps: Pointer<string>) {
-                let n1: number32 = Number32(a);
-                let n2: number32 = Number32(s);
-                let n3: number32 = Number32("42");
-                let n4: number32 = Number32(pn);
-                let n5: number32 = Number32(ps);
-                let f: float64 = Float64(a);
+            function cast_all(a: int64, s: string, pn: Pointer<int32>, ps: Pointer<string>) {
+                let n1: int32 = int32(a);
+                let n2: int32 = int32(s);
+                let n3: int32 = int32("42");
+                let n4: int32 = int32(pn);
+                let n5: int32 = int32(ps);
+                let n6: int32 = number(s);
+                let f: float64 = float64(a);
+                let f2: float64 = float(a);
                 let t1: string = String(a);
                 let t2: string = String(ps);
                 let t3: string = String(pn);
@@ -352,10 +394,33 @@ mod tests {
         assert!(result.contains("\"42\".to_string()).parse::<i32>().unwrap_or_default()"));
         assert!(result.contains("(*pn.borrow()) as i32"));
         assert!(result.contains("(ps.borrow()).parse::<i32>().unwrap_or_default()"));
+        assert!(result.contains("(s).parse::<i32>().unwrap_or_default()"));
+        assert!(result.contains("(a) as f64"));
         assert!(result.contains("(a) as f64"));
         assert!(result.contains("(a).to_string()"));
         assert!(result.contains("ps.borrow().to_string()"));
         assert!(result.contains("(*pn.borrow()).to_string()"));
+    }
+
+    #[test]
+    fn test_compile_val_var_and_global_const() {
+        let trust_code = r#"
+            const SCALE: int32 = 10;
+
+            function test(): int32 {
+                val x: int32 = 2;
+                var y: int32 = 3;
+                y = y + x;
+                return y + SCALE;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("const SCALE: i32 = 10;"));
+        assert!(result.contains("let x: i32 = 2;"));
+        assert!(result.contains("let mut y: i32 = 3;"));
+        assert!(result.contains("y = y + x;"));
+        assert!(result.contains("return y + SCALE;"));
     }
 
     #[test]

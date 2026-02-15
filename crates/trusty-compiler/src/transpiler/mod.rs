@@ -20,6 +20,7 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
     let mut use_statements: Vec<String> = Vec::new();
     let mut type_decls: Vec<String> = Vec::new(); // structs + enums
     let mut impl_blocks: Vec<String> = Vec::new();
+    let mut global_consts: Vec<String> = Vec::new();
     let mut function_code: Vec<String> = Vec::new();
     let mut required_crates: Vec<String> = Vec::new();
 
@@ -51,6 +52,9 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
                     impl_blocks.push(impl_code);
                 }
             }
+            ModuleItem::Stmt(Stmt::Decl(Decl::Var(var_decl))) => {
+                global_consts.extend(statements::transpile_global_const(var_decl)?);
+            }
             _ => {}
         }
     }
@@ -59,6 +63,7 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
         .iter()
         .chain(type_decls.iter())
         .chain(impl_blocks.iter())
+        .chain(global_consts.iter())
         .chain(function_code.iter())
         .cloned()
         .collect();
@@ -109,6 +114,10 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
     }
     for block in &impl_blocks {
         rust_code.push_str(block);
+        rust_code.push_str("\n\n");
+    }
+    for global_const in &global_consts {
+        rust_code.push_str(global_const);
         rust_code.push_str("\n\n");
     }
     for func in &function_code {

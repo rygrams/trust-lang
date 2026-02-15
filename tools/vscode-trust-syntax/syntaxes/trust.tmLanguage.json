@@ -1,0 +1,147 @@
+{
+  "name": "TRUST",
+  "scopeName": "source.trust",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#constants"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.trust",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.trust",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.trust",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.trust",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.trust",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.trust",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.template.trust",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "constant.character.escape.trust",
+              "match": "\\\\."
+            },
+            {
+              "name": "meta.interpolation.trust",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#types"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.trust",
+          "match": "\\b\\d+(?:\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.trust",
+          "match": "\\b(if|else|return|throw|wait)\\b"
+        },
+        {
+          "name": "keyword.declaration.trust",
+          "match": "\\b(function|struct|enum|implements|import|from|new)\\b"
+        },
+        {
+          "name": "storage.modifier.trust",
+          "match": "\\b(val|var|const)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.trust",
+          "match": "\\b(int|int8|int16|int32|int64|float|float32|float64|number|number8|number16|number32|number64|string|boolean)\\b"
+        },
+        {
+          "name": "entity.name.type.trust",
+          "match": "\\b(Pointer|Threaded|Map|Set|Result)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.trust",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.trust",
+          "match": "\\b(true|false|null|undefined)\\b"
+        }
+      ]
+    }
+  }
+}

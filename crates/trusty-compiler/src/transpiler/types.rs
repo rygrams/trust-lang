@@ -20,15 +20,22 @@ pub fn transpile_type(ts_type: &TsType) -> String {
                     .unwrap_or_default();
 
                 match type_name.as_str() {
-                    // Primitive integers
+                    // Preferred integer types
+                    "int8" => "i8".to_string(),
+                    "int16" => "i16".to_string(),
+                    "int32" => "i32".to_string(),
+                    "int64" => "i64".to_string(),
+                    "int" => "i32".to_string(),
+                    // Backward-compat integers
                     "number8" => "i8".to_string(),
                     "number16" => "i16".to_string(),
                     "number32" => "i32".to_string(),
                     "number64" => "i64".to_string(),
-                    // Floats
+                    // Preferred floats
                     "float32" => "f32".to_string(),
                     "float64" => "f64".to_string(),
-                    // number fallback
+                    "float" => "f64".to_string(),
+                    // Backward-compat alias
                     "number" => "i32".to_string(),
                     // Pointer<T> → Rc<RefCell<T>>  (shared mutable reference, single-thread)
                     "Pointer" => {

@@ -1,0 +1,36 @@
+{
+  "name": "trust-lang-syntax",
+  "displayName": "TRUST Language Syntax",
+  "description": "Syntax highlighting for TRUST (.trs) files.",
+  "version": "0.0.1",
+  "publisher": "trust-lang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "trust",
+        "aliases": [
+          "TRUST",
+          "trust"
+        ],
+        "extensions": [
+          ".trs"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "trust",
+        "scopeName": "source.trust",
+        "path": "./syntaxes/trust.tmLanguage.json"
+      }
+    ]
+  }
+}
