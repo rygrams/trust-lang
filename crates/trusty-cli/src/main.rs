@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use trusty_compiler;
 
 #[derive(Parser)]
@@ -204,16 +205,20 @@ fn build_file(
     fs::write(&rs_path, &transpile_output.rust_code)?;
 
     if compile {
-        let bin_path = output
-            .cloned()
-            .unwrap_or_else(|| build.join(&stem));
+        let bin_path = output.cloned().unwrap_or_else(|| build.join(&stem));
 
         if transpile_output.required_crates.is_empty() {
             // No external crates → fast rustc path
             compile_with_rustc(&rs_path, &bin_path, release)?;
         } else {
             // External crates → generate a Cargo project and use cargo build
-            compile_with_cargo(input, &transpile_output.rust_code, &transpile_output.required_crates, &bin_path, release)?;
+            compile_with_cargo(
+                input,
+                &transpile_output.rust_code,
+                &transpile_output.required_crates,
+                &bin_path,
+                release,
+            )?;
         }
 
         fs::remove_file(&rs_path).ok();
@@ -241,8 +246,8 @@ fn compile_with_rustc(rs_file: &Path, bin_path: &Path, release: bool) -> Result<
     if out.status.success() {
         println!("✅ Binary ready: {}", bin_path.display());
     } else {
-        eprintln!("❌ Compilation failed:");
-        eprintln!("{}", String::from_utf8_lossy(&out.stderr));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        bail!("❌ Compilation failed:\n{}", stderr.trim());
     }
     Ok(())
 }
@@ -274,7 +279,10 @@ fn compile_with_cargo(
     // Generate Cargo.toml
     let mut deps_toml = String::new();
     for crate_name in required_crates {
-        let version = manifest_deps.get(crate_name).map(String::as_str).unwrap_or("*");
+        let version = manifest_deps
+            .get(crate_name)
+            .map(String::as_str)
+            .unwrap_or("*");
         deps_toml.push_str(&format!("{} = \"{}\"\n", crate_name, version));
     }
 
@@ -289,24 +297,21 @@ fn compile_with_cargo(
     // cargo build
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("build");
-    cmd.arg("--manifest-path").arg(cargo_project.join("Cargo.toml"));
+    cmd.arg("--manifest-path")
+        .arg(cargo_project.join("Cargo.toml"));
     if release {
         cmd.arg("--release");
     }
 
     let out = cmd.output()?;
     if !out.status.success() {
-        eprintln!("❌ Compilation failed:");
-        eprintln!("{}", String::from_utf8_lossy(&out.stderr));
-        return Ok(());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        bail!("❌ Compilation failed:\n{}", stderr.trim());
     }
 
     // Copy binary to the expected bin_path
     let profile = if release { "release" } else { "debug" };
-    let cargo_bin = cargo_project
-        .join("target")
-        .join(profile)
-        .join(&stem);
+    let cargo_bin = cargo_project.join("target").join(profile).join(&stem);
 
     fs::copy(&cargo_bin, bin_path)
         .with_context(|| format!("Failed to copy binary from {}", cargo_bin.display()))?;
@@ -335,8 +340,20 @@ fn run_file(input: &PathBuf, release: bool) -> Result<()> {
 fn check_file(input: &PathBuf) -> Result<()> {
     println!("🔍 Checking {}...", input.display());
 
-    let source = resolve_and_bundle_modules(input)?;
-    let _ = trusty_compiler::compile(&source)?;
+    // `build --compile` catches parser/transpiler errors and Rust type errors.
+    let mut out = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    out.push(format!(
+        "trusty-check-{}-{}-{}",
+        stem(input),
+        std::process::id(),
+        nonce
+    ));
+    let _ = build_file(input, Some(&out), true, false)?;
+    let _ = fs::remove_file(out);
 
     println!("✅ No errors found");
     Ok(())
@@ -345,8 +362,8 @@ fn check_file(input: &PathBuf) -> Result<()> {
 // ─── trusty format ───────────────────────────────────────────────────────────
 
 fn format_file(input: &PathBuf, check: bool) -> Result<()> {
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read {}", input.display()))?;
+    let source =
+        fs::read_to_string(input).with_context(|| format!("Failed to read {}", input.display()))?;
     let formatted = format_trust_source(&source);
 
     if check {
@@ -401,7 +418,11 @@ fn format_trust_source(source: &str) -> String {
 
     while i < chars.len() {
         let c = chars[i];
-        let next = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+        let next = if i + 1 < chars.len() {
+            Some(chars[i + 1])
+        } else {
+            None
+        };
 
         if in_single {
             prev_input_was_newline = false;
@@ -680,7 +701,11 @@ fn resolve_module_file(
             .map(|p| p.display().to_string())
             .collect::<Vec<_>>()
             .join(" -> ");
-        bail!("Circular local import detected: {} -> {}", chain, canonical.display());
+        bail!(
+            "Circular local import detected: {} -> {}",
+            chain,
+            canonical.display()
+        );
     }
     stack.push(canonical.clone());
 

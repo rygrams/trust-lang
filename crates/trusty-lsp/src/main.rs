@@ -38,23 +38,99 @@ impl Backend {
     async fn publish_diagnostics(&self, uri: Url, text: &str) {
         let diagnostics = match trusty_compiler::compile(text) {
             Ok(_) => Vec::new(),
-            Err(err) => vec![Diagnostic {
-                range: Range {
+            Err(err) => {
+                let message = err.to_string();
+                let range = Self::range_from_error_message(text, &message).unwrap_or(Range {
                     start: Position::new(0, 0),
                     end: Position::new(0, 1),
-                },
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("trusty-compiler".to_string()),
-                message: err.to_string(),
-                related_information: None,
-                tags: None,
-                data: None,
-            }],
+                });
+                vec![Diagnostic {
+                    range,
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    code: None,
+                    code_description: None,
+                    source: Some("trusty-compiler".to_string()),
+                    message,
+                    related_information: None,
+                    tags: None,
+                    data: None,
+                }]
+            }
         };
 
         self.client.publish_diagnostics(uri, diagnostics, None).await;
+    }
+
+    fn range_from_error_message(text: &str, message: &str) -> Option<Range> {
+        let (start, end) = Self::extract_byte_span(message)?;
+        let text_len = text.len();
+        let start = start.min(text_len);
+        let end = end.max(start.saturating_add(1)).min(text_len);
+        let start_pos = Self::byte_offset_to_position(text, start);
+        let mut end_pos = Self::byte_offset_to_position(text, end);
+        if end_pos == start_pos {
+            end_pos.character = end_pos.character.saturating_add(1);
+        }
+        Some(Range {
+            start: start_pos,
+            end: end_pos,
+        })
+    }
+
+    fn extract_byte_span(message: &str) -> Option<(usize, usize)> {
+        let bytes = message.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            if !bytes[i].is_ascii_digit() {
+                i += 1;
+                continue;
+            }
+            let start_i = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i + 1 >= bytes.len() || bytes[i] != b'.' || bytes[i + 1] != b'.' {
+                continue;
+            }
+            let start = message[start_i..i].parse::<usize>().ok()?;
+            i += 2;
+            let end_i = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if end_i == i {
+                continue;
+            }
+            let end = message[end_i..i].parse::<usize>().ok()?;
+            return Some((start, end));
+        }
+        None
+    }
+
+    fn byte_offset_to_position(text: &str, offset: usize) -> Position {
+        let mut line = 0u32;
+        let mut character = 0u32;
+        let mut seen = 0usize;
+        let limit = offset.min(text.len());
+
+        for ch in text.chars() {
+            let ch_len = ch.len_utf8();
+            if seen + ch_len > limit {
+                break;
+            }
+            seen += ch_len;
+            if ch == '\n' {
+                line += 1;
+                character = 0;
+            } else {
+                character += ch.len_utf16() as u32;
+            }
+            if seen == limit {
+                break;
+            }
+        }
+
+        Position::new(line, character)
     }
 
     fn completion_items() -> Vec<CompletionItem> {

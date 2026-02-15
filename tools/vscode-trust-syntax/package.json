@@ -103,7 +103,7 @@
         },
         "trust.setup.writeWorkspaceSettingsOnActivate": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Automatically create/update .vscode/settings.json for TRUST defaults when extension activates."
         }
       }

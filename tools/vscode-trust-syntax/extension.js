@@ -88,9 +88,43 @@ function workspaceSettingsPath() {
   return path.join(root, ".vscode", "settings.json")
 }
 
+function extractByteSpan(text) {
+  const match =
+    text.match(/\((\d+)\.\.(\d+),\s*TS\d+\)/) ||
+    text.match(/\((\d+)\.\.(\d+)\)/) ||
+    text.match(/(\d+)\.\.(\d+)/)
+  if (!match) {
+    return null
+  }
+  const start = Number(match[1])
+  const end = Number(match[2])
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0) {
+    return null
+  }
+  return { start, end: Math.max(end, start + 1) }
+}
+
+function utf8BytesToUtf16Offset(text, targetBytes) {
+  const allBytes = Buffer.byteLength(text, "utf8")
+  const clamped = Math.max(0, Math.min(targetBytes, allBytes))
+  return Buffer.from(text, "utf8").subarray(0, clamped).toString("utf8").length
+}
+
+function rangeFromByteSpan(document, span) {
+  if (!span) {
+    return null
+  }
+  const text = document.getText()
+  const startOffset = utf8BytesToUtf16Offset(text, span.start)
+  const endOffset = utf8BytesToUtf16Offset(text, span.end)
+  const start = document.positionAt(startOffset)
+  const end = document.positionAt(Math.max(endOffset, startOffset + 1))
+  return new vscode.Range(start, end)
+}
+
 async function ensureWorkspaceSettings() {
   const cfg = vscode.workspace.getConfiguration("trust")
-  const autoWrite = cfg.get("setup.writeWorkspaceSettingsOnActivate", true)
+  const autoWrite = cfg.get("setup.writeWorkspaceSettingsOnActivate", false)
   if (!autoWrite) {
     return
   }
@@ -216,11 +250,13 @@ function registerLintOnSave(context) {
       const stderr = err.stderr ? String(err.stderr).trim() : ""
       const msg = stderr || err.message || String(err)
       const clean = msg.replace(/\x1b\[[0-9;]*m/g, "")
-      const end = document.lineCount > 0
+      const fullEnd = document.lineCount > 0
         ? document.lineAt(document.lineCount - 1).range.end
         : new vscode.Position(0, 1)
+      const range = rangeFromByteSpan(document, extractByteSpan(clean))
+        || new vscode.Range(new vscode.Position(0, 0), fullEnd)
       const diag = new vscode.Diagnostic(
-        new vscode.Range(new vscode.Position(0, 0), end),
+        range,
         `TRUST lint failed: ${clean}`,
         vscode.DiagnosticSeverity.Error
       )
