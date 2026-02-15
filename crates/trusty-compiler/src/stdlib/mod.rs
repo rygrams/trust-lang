@@ -1,4 +1,5 @@
 pub mod time;
+pub mod math;
 
 pub struct StdlibModule {
     pub use_statements: Vec<String>,
@@ -10,6 +11,16 @@ pub struct StdlibModule {
 /// Returns `None` if the module is not a known stdlib module.
 pub fn resolve(module_name: &str) -> Option<StdlibModule> {
     match module_name {
+        "math" => Some(StdlibModule {
+            use_statements: math::use_statements()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            required_crates: math::required_crates()
+                .iter()
+                .map(|(n, v)| (n.to_string(), v.to_string()))
+                .collect(),
+        }),
         "time" => Some(StdlibModule {
             use_statements: time::use_statements()
                 .iter()

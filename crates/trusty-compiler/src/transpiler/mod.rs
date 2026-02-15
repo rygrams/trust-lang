@@ -23,6 +23,7 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
     let mut global_consts: Vec<String> = Vec::new();
     let mut function_code: Vec<String> = Vec::new();
     let mut required_crates: Vec<String> = Vec::new();
+    let mut module_aliases: Vec<String> = Vec::new();
 
     for item in &module.body {
         match item {
@@ -38,6 +39,11 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
                         required_crates.push(name);
                     }
                 }
+                for alias in info.module_aliases {
+                    if !module_aliases.contains(&alias) {
+                        module_aliases.push(alias);
+                    }
+                }
             }
             ModuleItem::Stmt(Stmt::Decl(Decl::TsInterface(interface_decl))) => {
                 let struct_code = structs::transpile_interface(interface_decl)?;
@@ -48,11 +54,11 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
                 type_decls.push(enum_code);
             }
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(func_decl))) => {
-                let func_code = functions::transpile_function(func_decl)?;
+                let func_code = functions::transpile_function(func_decl, &module_aliases)?;
                 function_code.push(func_code);
             }
             ModuleItem::Stmt(Stmt::Decl(Decl::Class(class_decl))) => {
-                if let Some(impl_code) = functions::transpile_impl_block(class_decl)? {
+                if let Some(impl_code) = functions::transpile_impl_block(class_decl, &module_aliases)? {
                     impl_blocks.push(impl_code);
                 }
             }

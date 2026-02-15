@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 /// Maps variable/parameter names to their Rust type strings within a function.
 pub type Scope = HashMap<String, String>;
+pub const MODULE_ALIAS_MARKER: &str = "__trust_module_alias__";
 
 /// Returns true if the Rust type string represents a Pointer<T> (Rc<RefCell<T>>).
 pub fn is_pointer(type_str: &str) -> bool {
@@ -11,4 +12,9 @@ pub fn is_pointer(type_str: &str) -> bool {
 /// Returns true if the Rust type string represents a Threaded<T> (Arc<Mutex<T>>).
 pub fn is_threaded(type_str: &str) -> bool {
     type_str.starts_with("Arc<Mutex<")
+}
+
+/// Returns true if the scope entry is a module alias marker.
+pub fn is_module_alias_binding(type_str: &str) -> bool {
+    type_str == MODULE_ALIAS_MARKER
 }

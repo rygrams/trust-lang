@@ -1,12 +1,12 @@
-use super::scope::Scope;
+use super::scope::{Scope, MODULE_ALIAS_MARKER};
 use super::statements::transpile_block_stmt;
 use super::types::*;
 use anyhow::{bail, Result};
 use swc_ecma_ast::*;
 
-pub fn transpile_function(func: &FnDecl) -> Result<String> {
+pub fn transpile_function(func: &FnDecl, module_aliases: &[String]) -> Result<String> {
     let name = &func.ident.sym;
-    let mut scope = Scope::new();
+    let mut scope = base_scope(module_aliases);
     let params = transpile_params(&func.function.params, &mut scope)?;
     let return_type = transpile_return_type(&func.function.return_type)?;
     if func.function.is_async {
@@ -21,13 +21,13 @@ pub fn transpile_function(func: &FnDecl) -> Result<String> {
     Ok(format!("fn {}({}) -> {} {{\n{}\n}}", name, params, return_type, body))
 }
 
-pub fn transpile_impl_block(class_decl: &ClassDecl) -> Result<Option<String>> {
+pub fn transpile_impl_block(class_decl: &ClassDecl, module_aliases: &[String]) -> Result<Option<String>> {
     let name = class_decl.ident.sym.to_string();
     let mut methods = Vec::new();
 
     for member in &class_decl.class.body {
         if let ClassMember::Method(method) = member {
-            if let Some(code) = transpile_impl_method(method)? {
+            if let Some(code) = transpile_impl_method(method, module_aliases)? {
                 methods.push(code);
             }
         }
@@ -40,7 +40,7 @@ pub fn transpile_impl_block(class_decl: &ClassDecl) -> Result<Option<String>> {
     Ok(Some(format!("impl {} {{\n{}\n}}", name, methods.join("\n\n"))))
 }
 
-fn transpile_impl_method(method: &ClassMethod) -> Result<Option<String>> {
+fn transpile_impl_method(method: &ClassMethod, module_aliases: &[String]) -> Result<Option<String>> {
     if method.is_static {
         return Ok(None);
     }
@@ -53,7 +53,7 @@ fn transpile_impl_method(method: &ClassMethod) -> Result<Option<String>> {
         _ => return Ok(None),
     };
 
-    let mut scope = Scope::new();
+    let mut scope = base_scope(module_aliases);
     let params = transpile_params(&method.function.params, &mut scope)?;
     let return_type = transpile_return_type(&method.function.return_type)?;
     let body = transpile_block(&method.function.body, &mut scope)?;
@@ -194,4 +194,12 @@ fn expr_is_this_member(expr: &Expr) -> bool {
 
 fn this_member(member: &MemberExpr) -> bool {
     matches!(&*member.obj, Expr::This(_))
+}
+
+fn base_scope(module_aliases: &[String]) -> Scope {
+    let mut scope = Scope::new();
+    for alias in module_aliases {
+        scope.insert(alias.clone(), MODULE_ALIAS_MARKER.to_string());
+    }
+    scope
 }

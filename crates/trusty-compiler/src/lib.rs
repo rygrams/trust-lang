@@ -1314,4 +1314,59 @@ mod tests {
         assert!(result.contains("let dts = dt.toIsoString();"));
         assert!(result.contains("return format!(\"{}|{}|{}\", ds, ts, dts);"));
     }
+
+    #[test]
+    fn test_compile_trusty_math_helpers() {
+        let trust_code = r#"
+            import { sqrt, pow, log, abs, min, max, clamp, sin, cos, tan, PI, E } from "trusty:math";
+
+            function demo(x: int32): float64 {
+                val a = sqrt(x);
+                val p = pow(2, 8);
+                val lg = log(100.0);
+                val lgb = log(8.0, 2.0);
+                val b = abs(-42);
+                val c = min(10, 20);
+                val d = max(10, 20);
+                val e = clamp(x, 0, 100);
+                val f = sin(1.0) + cos(1.0) + tan(1.0) + PI + E;
+                return a + p + lg + lgb + float64(b + c + d + e) + f;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("pub const PI: f64 = std::f64::consts::PI;"));
+        assert!(result.contains("pub const E: f64 = std::f64::consts::E;"));
+        assert!(result.contains("pub fn sqrt<T: Into<f64>>(x: T) -> f64"));
+        assert!(result.contains("pub fn pow<A: Into<f64>, B: Into<f64>>(base: A, exp: B) -> f64"));
+        assert!(result.contains("pub fn log<T: Into<f64>>(value: T) -> f64"));
+        assert!(result.contains("pub fn log_base<V: Into<f64>, B: Into<f64>>(value: V, base: B) -> f64"));
+        assert!(result.contains("pub fn abs<T: __TrustMathAbs>(x: T) -> T"));
+        assert!(result.contains("pub fn min<T: PartialOrd + Copy>(a: T, b: T) -> T"));
+        assert!(result.contains("pub fn max<T: PartialOrd + Copy>(a: T, b: T) -> T"));
+        assert!(result.contains("pub fn clamp<T: PartialOrd + Copy>(x: T, lo: T, hi: T) -> T"));
+        assert!(result.contains("pub fn sin<T: Into<f64>>(x: T) -> f64"));
+        assert!(result.contains("let a = sqrt(x);"));
+        assert!(result.contains("let p = pow(2, 8);"));
+        assert!(result.contains("let lg = log("));
+        assert!(result.contains("let lgb = log_base("));
+        assert!(result.contains("let e = clamp(x, 0, 100);"));
+    }
+
+    #[test]
+    fn test_compile_trusty_math_default_alias_namespace_style() {
+        let trust_code = r#"
+            import math from "trusty:math";
+
+            function demo(): float64 {
+                return math.PI + math.E + math.sqrt(9) + math.pow(2, 8) + math.log(10.0) + math.log(8.0, 2.0);
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("mod __trusty_math {"));
+        assert!(result.contains("use __trusty_math as math;"));
+        assert!(result.contains("math::log("));
+        assert!(result.contains("math::log_base("));
+    }
 }

@@ -1,4 +1,4 @@
-use super::scope::{is_pointer, is_threaded, Scope};
+use super::scope::{is_module_alias_binding, is_pointer, is_threaded, Scope};
 use super::statements::transpile_block_stmt;
 use crate::stdlib::time as stdlib_time;
 use anyhow::Result;
@@ -144,6 +144,12 @@ fn transpile_member_access(member: &MemberExpr, scope: &Scope) -> Result<String>
         MemberProp::Ident(ident) => ident.sym.to_string(),
         _ => "unknown".to_string(),
     };
+    let module_alias_obj = ident_name(&member.obj)
+        .and_then(|n| scope.get(&n).map(|t| is_module_alias_binding(t)))
+        .unwrap_or(false);
+    if module_alias_obj {
+        return Ok(format!("{}::{}", obj_str, prop));
+    }
     // .length
     if prop == "length" {
         if let Some(name) = ident_name(&member.obj) {
@@ -287,7 +293,11 @@ fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
                     .iter()
                     .map(|arg| transpile_expression(&arg.expr, scope))
                     .collect();
-                Ok(format!("{}({})", func_name, args?.join(", ")))
+                let args = args?;
+                if func_name == "log" && args.len() == 2 {
+                    return Ok(format!("log_base({}, {})", args[0], args[1]));
+                }
+                Ok(format!("{}({})", func_name, args.join(", ")))
             }
             _ => Ok("unknown_call".to_string()),
         },
@@ -612,11 +622,22 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         return Ok(format!("{}.{}()", obj, rust_method));
     }
 
+    let module_alias_obj = ident_name(&member.obj)
+        .and_then(|n| scope.get(&n).map(|t| is_module_alias_binding(t)))
+        .unwrap_or(false);
+    if module_alias_obj && prop == "log" && arg_strs.len() == 2 {
+        return Ok(format!("{}::log_base({}, {})", obj, arg_strs[0], arg_strs[1]));
+    }
+
     // Uppercase identifier object = Rust type → use `::` (e.g. Instant::now(), Server::http())
     // But only for direct identifier references, not chained calls (e.g. foo().unwrap() uses `.`)
-    let separator = match &*member.obj {
-        Expr::Ident(ident) if ident.sym.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => "::",
-        _ => ".",
+    let separator = if module_alias_obj {
+        "::"
+    } else {
+        match &*member.obj {
+            Expr::Ident(ident) if ident.sym.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => "::",
+            _ => ".",
+        }
     };
     Ok(format!("{}{}{}({})", obj, separator, prop, arg_strs.join(", ")))
 }
