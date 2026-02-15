@@ -1,5 +1,6 @@
 pub mod time;
 pub mod math;
+pub mod rand;
 
 pub struct StdlibModule {
     pub use_statements: Vec<String>,
@@ -17,6 +18,16 @@ pub fn resolve(module_name: &str) -> Option<StdlibModule> {
                 .map(|s| s.to_string())
                 .collect(),
             required_crates: math::required_crates()
+                .iter()
+                .map(|(n, v)| (n.to_string(), v.to_string()))
+                .collect(),
+        }),
+        "rand" => Some(StdlibModule {
+            use_statements: rand::use_statements()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            required_crates: rand::required_crates()
                 .iter()
                 .map(|(n, v)| (n.to_string(), v.to_string()))
                 .collect(),

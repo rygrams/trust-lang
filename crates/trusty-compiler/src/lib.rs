@@ -1369,4 +1369,31 @@ mod tests {
         assert!(result.contains("math::log("));
         assert!(result.contains("math::log_base("));
     }
+
+    #[test]
+    fn test_compile_trusty_rand_helpers() {
+        let trust_code = r#"
+            import { random, randomInt, randomFloat, bernoulli, weightedIndex } from "trusty:rand";
+
+            function demo(): int32 {
+                val a = random();
+                val b = randomInt(1, 6);
+                val c = randomFloat(0.0, 1.0);
+                val d = bernoulli(0.5);
+                val i = weightedIndex([0.2, 0.3, 0.5]);
+                return b + i + int32(c) + int32(a) + int32(boolean(d));
+            }
+        "#;
+
+        let output = compile_full(trust_code).unwrap();
+        let result = output.rust_code;
+        assert!(result.contains("use rand::Rng;"));
+        assert!(result.contains("use rand::distributions::{Bernoulli, Distribution, WeightedIndex};"));
+        assert!(result.contains("pub fn random() -> f64"));
+        assert!(result.contains("pub fn randomInt(min: i32, max: i32) -> i32"));
+        assert!(result.contains("pub fn randomFloat(min: f64, max: f64) -> f64"));
+        assert!(result.contains("pub fn bernoulli(p: f64) -> bool"));
+        assert!(result.contains("pub fn weightedIndex(weights: Vec<f64>) -> i32"));
+        assert!(output.required_crates.contains(&"rand".to_string()));
+    }
 }
