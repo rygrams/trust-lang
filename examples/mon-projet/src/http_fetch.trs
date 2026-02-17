@@ -1,0 +1,29 @@
+import { fetch, fetchWith, requestOptions, HttpRequestOptions } from "trusty:http";
+import { toJSON, fromJSON } from "trusty:json";
+
+struct Echo {
+    message: string;
+}
+
+function main() {
+    val ping = fetch("https://httpbin.org/get");
+    console.write(ping.status);
+    console.write(ping.ok);
+    console.write(ping.text());
+
+    var opts: HttpRequestOptions = requestOptions();
+    opts.method = "POST";
+    opts.headers.set("Content-Type", "application/json");
+    opts.body = toJSON(Echo({ message: "hello from TRUST" }));
+
+    val res = fetchWith("https://httpbin.org/post", opts);
+    if (res.ok) {
+        val body = res.text();
+        console.write(body);
+    } else {
+        console.write(res.error);
+    }
+
+    val typed: Echo = fromJSON(toJSON(Echo({ message: "typed roundtrip" })));
+    console.write(typed.message);
+}

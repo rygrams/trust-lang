@@ -2,6 +2,7 @@ pub mod time;
 pub mod math;
 pub mod rand;
 pub mod json;
+pub mod http;
 
 pub struct StdlibModule {
     pub use_statements: Vec<String>,
@@ -49,6 +50,16 @@ pub fn resolve(module_name: &str) -> Option<StdlibModule> {
                 .map(|s| s.to_string())
                 .collect(),
             required_crates: json::required_crates()
+                .iter()
+                .map(|(n, v)| (n.to_string(), v.to_string()))
+                .collect(),
+        }),
+        "http" => Some(StdlibModule {
+            use_statements: http::use_statements()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            required_crates: http::required_crates()
                 .iter()
                 .map(|(n, v)| (n.to_string(), v.to_string()))
                 .collect(),

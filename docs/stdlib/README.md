@@ -1,80 +1,76 @@
 # TRUST Standard Library
 
-Modules available via the `trusty:` import prefix.
-The transpiler resolves them automatically — no `Cargo.toml` edits required.
+Modules are imported with the `trusty:` prefix.
 
 ```typescript
 import { ... } from "trusty:<module>";
 ```
 
----
+## Modules Index
 
-## Available modules
-
-| Module | Status | Description |
+| Module | Status | Doc |
 |---|---|---|
-| [`trusty:time`](./time.md) | ✅ Implemented | Instant, Duration, SystemTime, Date, Time, DateTime, sleep, compare/add/sub helpers |
-| `trusty:fs` | 🔜 Planned | File read/write, directories |
-| `trusty:io` | 🔜 Planned | stdin, stdout, stderr |
-| `trusty:env` | 🔜 Planned | Environment variables, CLI args |
-| `trusty:path` | 🔜 Planned | Path manipulation |
-| `trusty:json` | ✅ Implemented | JSON parse/stringify (`parseToJSON`, `stringify`, `toJSON`, `fromJSON`) |
-| `trusty:rand` | 🔜 Planned | Random numbers, distributions |
-| `trusty:math` | 🔜 Planned | sqrt, abs, min, max, clamp, trig |
-| `trusty:bd` | 🔜 Planned | SQL (SQLite/Postgres/MySQL), ORM |
-| `trusty:http` | 🔜 Planned | HTTP server, router, middleware |
-| `trusty:redis` | 🔜 Planned | Cache, pub/sub |
-| `trusty:kafka` | 🔜 Planned | Kafka producer/consumer |
-| `trusty:amqp` | 🔜 Planned | RabbitMQ, queues |
-| `trusty:nats` | 🔜 Planned | Lightweight messaging |
-| `trusty:ws` | 🔜 Planned | WebSockets |
-| `trusty:grpc` | 🔜 Planned | gRPC services |
-| `trusty:graphql` | 🔜 Planned | GraphQL server |
-| `trusty:net` | 🔜 Planned | TCP/UDP sockets |
-| `trusty:thread` | 🔜 Planned | Threads, channels, mutex |
-| `trusty:async` | 🔜 Planned | Async runtime, tasks |
-| `trusty:crypto` | 🔜 Planned | SHA2/3, HMAC, AES |
-| `trusty:bcrypt` | 🔜 Planned | Password hashing |
-| `trusty:jwt` | 🔜 Planned | Token generation/verification |
-| `trusty:auth` | 🔜 Planned | OAuth2, sessions, RBAC |
-| `trusty:tls` | 🔜 Planned | Certificates, TLS/SSL |
-| `trusty:storage` | 🔜 Planned | S3, GCS, Azure Blob |
-| `trusty:mail` | 🔜 Planned | SMTP email |
-| `trusty:log` | 🔜 Planned | Structured logs |
-| `trusty:metrics` | 🔜 Planned | Prometheus counters/gauges |
-| `trusty:tracing` | 🔜 Planned | Distributed traces (OpenTelemetry) |
-| `trusty:config` | 🔜 Planned | Multi-source config, hot reload |
-| `trusty:cli` | 🔜 Planned | CLI argument parser |
-| `trusty:process` | 🔜 Planned | Spawn, Command, signals |
-| `trusty:docker` | 🔜 Planned | Docker API |
-| `trusty:vault` | 🔜 Planned | HashiCorp Vault secrets |
-| `trusty:uuid` | 🔜 Planned | UUID generation |
-| `trusty:regex` | 🔜 Planned | Regular expressions |
-| `trusty:base64` | 🔜 Planned | Encode/decode |
-| `trusty:compress` | 🔜 Planned | gzip, zstd, lz4 |
-| `trusty:serialize` | 🔜 Planned | Binary serialization |
-| `trusty:collections` | 🔜 Planned | Queue, Stack, PriorityQueue |
-| `trusty:tensor` | 🔜 Planned | N-dim tensors, SIMD ops |
-| `trusty:nn` | 🔜 Planned | Neural network layers |
-| `trusty:train` | 🔜 Planned | Training loop, optimizers |
-| `trusty:model` | 🔜 Planned | Load/save models (safetensors, GGUF) |
-| `trusty:embed` | 🔜 Planned | Vector embeddings, cosine similarity |
-| `trusty:linalg` | 🔜 Planned | Matrix, SVD, dot product |
-| `trusty:stats` | 🔜 Planned | Mean, variance, regression |
-| `trusty:gpu` | 🔜 Planned | CUDA/Metal/WebGPU acceleration |
+| `trusty:time` | ✅ Implemented | [time.md](./time.md) |
+| `trusty:math` | ✅ Implemented | [math.md](./math.md) |
+| `trusty:rand` | ✅ Implemented | [rand.md](./rand.md) |
+| `trusty:json` | ✅ Implemented | [json.md](./json.md) |
+| `trusty:http` | ✅ Implemented | [http.md](./http.md) |
+| `trusty:fs` | 🔜 Planned | [fs.md](./fs.md) |
+| `trusty:io` | 🔜 Planned | [io.md](./io.md) |
+| `trusty:env` | 🔜 Planned | [env.md](./env.md) |
+| `trusty:path` | 🔜 Planned | [path.md](./path.md) |
+| `trusty:bd` | 🔜 Planned | [bd.md](./bd.md) |
+| `trusty:redis` | 🔜 Planned | [redis.md](./redis.md) |
+| `trusty:kafka` | 🔜 Planned | [kafka.md](./kafka.md) |
+| `trusty:amqp` | 🔜 Planned | [amqp.md](./amqp.md) |
+| `trusty:nats` | 🔜 Planned | [nats.md](./nats.md) |
+| `trusty:ws` | 🔜 Planned | [ws.md](./ws.md) |
+| `trusty:grpc` | 🔜 Planned | [grpc.md](./grpc.md) |
+| `trusty:graphql` | 🔜 Planned | [graphql.md](./graphql.md) |
+| `trusty:net` | 🔜 Planned | [net.md](./net.md) |
+| `trusty:thread` | 🔜 Planned | [thread.md](./thread.md) |
+| `trusty:async` | 🔜 Planned | [async.md](./async.md) |
+| `trusty:crypto` | 🔜 Planned | [crypto.md](./crypto.md) |
+| `trusty:bcrypt` | 🔜 Planned | [bcrypt.md](./bcrypt.md) |
+| `trusty:jwt` | 🔜 Planned | [jwt.md](./jwt.md) |
+| `trusty:auth` | 🔜 Planned | [auth.md](./auth.md) |
+| `trusty:tls` | 🔜 Planned | [tls.md](./tls.md) |
+| `trusty:storage` | 🔜 Planned | [storage.md](./storage.md) |
+| `trusty:mail` | 🔜 Planned | [mail.md](./mail.md) |
+| `trusty:log` | 🔜 Planned | [log.md](./log.md) |
+| `trusty:metrics` | 🔜 Planned | [metrics.md](./metrics.md) |
+| `trusty:tracing` | 🔜 Planned | [tracing.md](./tracing.md) |
+| `trusty:config` | 🔜 Planned | [config.md](./config.md) |
+| `trusty:cli` | 🔜 Planned | [cli.md](./cli.md) |
+| `trusty:process` | 🔜 Planned | [process.md](./process.md) |
+| `trusty:docker` | 🔜 Planned | [docker.md](./docker.md) |
+| `trusty:vault` | 🔜 Planned | [vault.md](./vault.md) |
+| `trusty:uuid` | 🔜 Planned | [uuid.md](./uuid.md) |
+| `trusty:regex` | 🔜 Planned | [regex.md](./regex.md) |
+| `trusty:base64` | 🔜 Planned | [base64.md](./base64.md) |
+| `trusty:compress` | 🔜 Planned | [compress.md](./compress.md) |
+| `trusty:serialize` | 🔜 Planned | [serialize.md](./serialize.md) |
+| `trusty:collections` | 🔜 Planned | [collections.md](./collections.md) |
+| `trusty:tensor` | 🔜 Planned | [tensor.md](./tensor.md) |
+| `trusty:nn` | 🔜 Planned | [nn.md](./nn.md) |
+| `trusty:train` | 🔜 Planned | [train.md](./train.md) |
+| `trusty:model` | 🔜 Planned | [model.md](./model.md) |
+| `trusty:embed` | 🔜 Planned | [embed.md](./embed.md) |
+| `trusty:linalg` | 🔜 Planned | [linalg.md](./linalg.md) |
+| `trusty:stats` | 🔜 Planned | [stats.md](./stats.md) |
+| `trusty:gpu` | 🔜 Planned | [gpu.md](./gpu.md) |
 
----
+## Resolution Model
 
-## How it works
+The compiler resolves `trusty:<module>` imports in `crates/trusty-compiler/src/stdlib/mod.rs`.
 
-When the transpiler encounters `import { X } from "trusty:time"`, it:
+- If implemented, TRUST injects runtime/type helpers into generated Rust.
+- If missing, TRUST emits a `module not yet implemented` comment in generated Rust.
 
-1. Strips the import line (does not emit a raw `use` from the source)
-2. Looks up `"time"` in the stdlib registry (`stdlib/mod.rs`)
-3. Injects the appropriate `use std::...` statements at the top of the generated file
-4. Adds any required external crates to the Cargo dependency list
-5. Applies API-specific expression mappings (e.g. `Duration.millis(n)` → `Duration::from_millis(...)`)
+## Implemented Runtime Crates
 
-Adding a new module requires only:
-- `crates/trusty-compiler/src/stdlib/<name>.rs` — use statements, crate deps, API mappings
-- One entry in `stdlib/mod.rs` `resolve()` match arm
+- `trusty:time` -> std only
+- `trusty:math` -> std only
+- `trusty:rand` -> `rand`
+- `trusty:json` -> `serde`, `serde_derive`, `serde_json`
+- `trusty:http` -> `ureq`, `tiny_http`, `serde_json`

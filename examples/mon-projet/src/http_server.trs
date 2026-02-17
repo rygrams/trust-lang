@@ -1,12 +1,33 @@
-import { Server, Response } from "tiny_http";
+import { HttpServer } from "trusty:http";
+import { toJSON } from "trusty:json";
+
+struct UserResponse {
+    ok: boolean;
+    id: string;
+}
 
 function main() {
-    val server = Server.http("0.0.0.0:8080").unwrap();
-    console.write("HTTP server running on http://0.0.0.0:8080");
+    val app = HttpServer.create();
 
-    loop (true) {
-        val request = server.recv().unwrap();
-        val response = Response.from_string("Hello from TRUST HTTP server!\n");
-        request.respond(response).unwrap();
+    app.get("/health", function(req, res) {
+        res.status(200).send("ok");
+    });
+
+    app.get("/users/:id", function(req, res) {
+        val id = req.params.getOr("id", "unknown");
+        res.status(200).json(toJSON<UserResponse>({ ok: true, id: id }));
+    });
+
+    app.post("/echo", function(req, res) {
+        val body = req.json();
+        res.status(200).jsonValue(body);
+    });
+
+    console.write("Starting HTTP server on http://127.0.0.1:8081 ...");
+    val started = app.listenOn("127.0.0.1:8081");
+    if (started) {
+        console.write("HTTP server stopped");
+    } else {
+        console.write(`failed to start server: ${app.lastError()}`);
     }
 }

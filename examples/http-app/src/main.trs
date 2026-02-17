@@ -1,0 +1,15 @@
+function main() {
+    var hello : string = "Hello from TRUST!";
+    val a : int32 = 42;
+    val b : int32 = 58;
+    val sum : int32 = a + b;
+    console.write(`The sum of ${a} and ${b} is ${sum}.`);
+
+    val product : int32 = a * b;
+    console.write(`The product of ${a} and ${b} is ${product}.`);
+
+    val isEven : boolean = (sum % 2) == 0;
+    console.write(`Is the sum even? ${isEven}`);
+
+    console.write(hello);
+}

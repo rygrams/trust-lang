@@ -1092,6 +1092,23 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_console_read() {
+        let trust_code = r#"
+            function ask(): string {
+                val a = console.read();
+                val b = console.read("Name: ");
+                return a + b;
+            }
+        "#;
+
+        let result = compile(trust_code).unwrap();
+        assert!(result.contains("std::io::stdin().read_line(&mut __trust_input).unwrap();"));
+        assert!(result.contains("__trust_input.trim_end_matches(&['\\n', '\\r'][..]).to_string()"));
+        assert!(result.contains("print!(\"{}\", \"Name: \".to_string());"));
+        assert!(result.contains("std::io::Write::flush(&mut __trust_stdout)"));
+    }
+
+    #[test]
     fn test_compile_for_and_loop_forms() {
         let trust_code = r#"
             function loops(arr: int32[]): int32 {
@@ -1249,6 +1266,100 @@ mod tests {
         assert!(output.required_crates.contains(&"serde".to_string()));
         assert!(output.required_crates.contains(&"serde_derive".to_string()));
         assert!(output.required_crates.contains(&"serde_json".to_string()));
+    }
+
+    #[test]
+    fn test_compile_trusty_http_fetch() {
+        let trust_code = r#"
+            import { fetch, fetchWith, requestOptions, HttpRequestOptions } from "trusty:http";
+            import { toJSON } from "trusty:json";
+
+            function callApi(): string {
+                val a = fetch("https://example.com");
+
+                var opts: HttpRequestOptions = requestOptions();
+                opts.method = "POST";
+                opts.body = toJSON("ping");
+
+                val b = fetchWith("https://example.com/echo", opts);
+                if (b.ok) {
+                    return b.text();
+                }
+                return b.error;
+            }
+        "#;
+
+        let output = compile_full(trust_code).unwrap();
+        assert!(output.rust_code.contains("pub struct HttpRequestOptions"));
+        assert!(output.rust_code.contains("pub struct HttpResponse"));
+        assert!(output.rust_code.contains("pub fn fetch(url: String) -> HttpResponse"));
+        assert!(output.rust_code.contains("pub fn fetchWith(url: String, options: HttpRequestOptions) -> HttpResponse"));
+        assert!(output.rust_code.contains("pub fn requestOptions() -> HttpRequestOptions"));
+        assert!(output.rust_code.contains("pub fn json(&self) -> Value"));
+        assert!(output.required_crates.contains(&"ureq".to_string()));
+    }
+
+    #[test]
+    fn test_compile_trusty_http_server_router_and_json_as() {
+        let trust_code = r#"
+            import { HttpServer } from "trusty:http";
+            import { toJSON } from "trusty:json";
+
+            struct UserBody {
+                id: string;
+            }
+
+            function boot(): int32 {
+                val app = HttpServer.create();
+
+                app.get("/users/:id", function(req, res) {
+                    val id = req.params.getOr("id", "unknown");
+                    res.status(200).json(toJSON({ ok: true, id: id }));
+                });
+
+                app.post("/users", function(req, res) {
+                    val parsed = req.jsonAs<UserBody>();
+                    if (parsed == null) {
+                        res.status(400).send("invalid");
+                    } else {
+                        res.status(201).json(toJSON(parsed));
+                    }
+                });
+
+                return 1;
+            }
+        "#;
+
+        let output = compile_full(trust_code).unwrap();
+        assert!(output.rust_code.contains("pub struct HttpServer"));
+        assert!(output.rust_code.contains("pub fn get<F>(&self, pattern: String, handler: F)"));
+        assert!(output.rust_code.contains("pub fn post<F>(&self, pattern: String, handler: F)"));
+        assert!(output.rust_code.contains("pub fn listen(&self, port: i32) -> bool"));
+        assert!(output.rust_code.contains("pub fn listenOn(&self, bind: String) -> bool"));
+        assert!(output.rust_code.contains("pub fn lastError(&self) -> String"));
+        assert!(output.rust_code.contains("pub fn jsonAs<T: serde::de::DeserializeOwned>(&self) -> Option<T>"));
+        assert!(output.rust_code.contains(".jsonAs::<UserBody>()"));
+        assert!(output.rust_code.contains("pub fn getOr(&self, key: String, fallback: String) -> String"));
+        assert!(output.required_crates.contains(&"tiny_http".to_string()));
+    }
+
+    #[test]
+    fn test_compile_tojson_typed_object_literal() {
+        let trust_code = r#"
+            import { toJSON } from "trusty:json";
+
+            struct UserResponse {
+                ok: boolean;
+                id: string;
+            }
+
+            function out(id: string): string {
+                return toJSON<UserResponse>({ ok: true, id: id });
+            }
+        "#;
+
+        let output = compile(trust_code).unwrap();
+        assert!(output.contains("toJSON::<UserResponse>(UserResponse { ok: true, id: id })"));
     }
 
     #[test]

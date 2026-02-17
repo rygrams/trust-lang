@@ -1,5 +1,6 @@
 use super::scope::{is_module_alias_binding, is_pointer, is_threaded, Scope};
 use super::statements::transpile_block_stmt;
+use super::types::transpile_type;
 use crate::stdlib::time as stdlib_time;
 use anyhow::Result;
 use swc_ecma_ast::*;
@@ -36,6 +37,7 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
                 rust_string_literal(&s.value.to_string_lossy())
             )),
             Lit::Bool(b) => Ok(b.value.to_string()),
+            Lit::Null(_) => Ok("None".to_string()),
             _ => Ok("unknown_literal".to_string()),
         },
         Expr::Tpl(tpl) => transpile_template_literal(tpl, scope),
@@ -58,11 +60,13 @@ pub fn transpile_expression(expr: &Expr, scope: &Scope) -> Result<String> {
         Expr::Member(member) => transpile_member_access(member, scope),
         Expr::Assign(assign) => transpile_assign(assign, scope),
         Expr::Arrow(arrow) => transpile_arrow(arrow, scope),
+        Expr::Fn(fn_expr) => transpile_fn_expr(fn_expr, scope),
         Expr::Await(await_expr) => {
             let awaited = transpile_expression(&await_expr.arg, scope)?;
             Ok(format!("({}).join().unwrap()", awaited))
         }
         Expr::Paren(paren) => transpile_expression(&paren.expr, scope),
+        Expr::Object(obj) => transpile_object_literal(obj, scope),
         Expr::New(new_expr) => {
             if let Expr::Ident(ident) = &*new_expr.callee {
                 match ident.sym.as_ref() {
@@ -252,6 +256,76 @@ fn transpile_arrow(arrow: &ArrowExpr, scope: &Scope) -> Result<String> {
     }
 }
 
+fn transpile_fn_expr(fn_expr: &FnExpr, scope: &Scope) -> Result<String> {
+    let params: Vec<String> = fn_expr
+        .function
+        .params
+        .iter()
+        .map(|p| match &p.pat {
+            Pat::Ident(ident) => ident.id.sym.to_string(),
+            _ => "_".to_string(),
+        })
+        .collect();
+
+    let body = if let Some(block) = &fn_expr.function.body {
+        let mut inner_scope = scope.clone();
+        let stmts = transpile_block_stmt(block, "    ", &mut inner_scope)?;
+        format!("{{\n{}\n}}", stmts)
+    } else {
+        "{\n}".to_string()
+    };
+
+    if params.is_empty() {
+        Ok(format!("move || {}", body))
+    } else {
+        Ok(format!("move |{}| {}", params.join(", "), body))
+    }
+}
+
+fn transpile_object_literal(obj: &ObjectLit, scope: &Scope) -> Result<String> {
+    let mut fields = Vec::new();
+    for prop in &obj.props {
+        let PropOrSpread::Prop(prop) = prop else {
+            continue;
+        };
+        match &**prop {
+            Prop::KeyValue(kv) => {
+                let key = match &kv.key {
+                    PropName::Ident(i) => i.sym.to_string(),
+                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                    PropName::Num(n) => n.value.to_string(),
+                    PropName::BigInt(b) => b.value.to_string(),
+                    PropName::Computed(_) => continue,
+                };
+                let value = transpile_expression(&kv.value, scope)?;
+                fields.push(format!("\"{}\": {}", key, value));
+            }
+            Prop::Shorthand(i) => {
+                let name = i.sym.to_string();
+                fields.push(format!("\"{}\": {}", name, name));
+            }
+            _ => {}
+        }
+    }
+    Ok(format!("serde_json::json!({{{}}})", fields.join(", ")))
+}
+
+fn render_turbofish(type_args: Option<&TsTypeParamInstantiation>) -> String {
+    let Some(type_args) = type_args else {
+        return String::new();
+    };
+    if type_args.params.is_empty() {
+        return String::new();
+    }
+    let args = type_args
+        .params
+        .iter()
+        .map(|t| transpile_type(t))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("::<{}>", args)
+}
+
 fn ident_name(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Ident(ident) => Some(ident.sym.to_string()),
@@ -286,7 +360,9 @@ fn transpile_template_literal(tpl: &Tpl, scope: &Scope) -> Result<String> {
 fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
     match &call.callee {
         Callee::Expr(expr) => match &**expr {
-            Expr::Member(member) => transpile_member_call(member, &call.args, scope),
+            Expr::Member(member) => {
+                transpile_member_call(member, &call.args, call.type_args.as_deref(), scope)
+            }
             Expr::Ident(ident) => {
                 let func_name = ident.sym.to_string();
                 if let Some(ctor_expr) = transpile_struct_constructor_call(&func_name, &call.args, scope)? {
@@ -295,6 +371,21 @@ fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
                 if let Some(cast_expr) = transpile_builtin_cast_call(&func_name, &call.args, scope)? {
                     return Ok(cast_expr);
                 }
+
+                // Typed object-literal support for JSON APIs:
+                // toJSON<MyType>({ ... }) -> toJSON::<MyType>(MyType { ... })
+                // stringify<MyType>({ ... }) -> stringify::<MyType>(MyType { ... })
+                if (func_name == "toJSON" || func_name == "stringify")
+                    && call.args.len() == 1
+                {
+                    if let Some(type_name) = extract_single_type_ref_name(call.type_args.as_deref()) {
+                        if let Expr::Object(obj) = &*call.args[0].expr {
+                            let typed_lit = transpile_object_as_named_struct_literal(&type_name, obj, scope)?;
+                            return Ok(format!("{}::<{}>({})", func_name, type_name, typed_lit));
+                        }
+                    }
+                }
+
                 let args: Result<Vec<String>> = call
                     .args
                     .iter()
@@ -304,7 +395,8 @@ fn transpile_call_expression(call: &CallExpr, scope: &Scope) -> Result<String> {
                 if func_name == "log" && args.len() == 2 {
                     return Ok(format!("log_base({}, {})", args[0], args[1]));
                 }
-                Ok(format!("{}({})", func_name, args.join(", ")))
+                let turbofish = render_turbofish(call.type_args.as_deref());
+                Ok(format!("{}{}({})", func_name, turbofish, args.join(", ")))
             }
             _ => Ok("unknown_call".to_string()),
         },
@@ -349,6 +441,47 @@ fn transpile_struct_constructor_call(func_name: &str, args: &[ExprOrSpread], sco
     }
 
     Ok(Some(format!("{} {{ {} }}", func_name, fields.join(", "))))
+}
+
+fn transpile_object_as_named_struct_literal(type_name: &str, obj: &ObjectLit, scope: &Scope) -> Result<String> {
+    let mut fields = Vec::new();
+    for prop in &obj.props {
+        let PropOrSpread::Prop(prop) = prop else {
+            continue;
+        };
+        match &**prop {
+            Prop::KeyValue(kv) => {
+                let key = match &kv.key {
+                    PropName::Ident(id) => id.sym.to_string(),
+                    PropName::Str(s) => s.value.to_string_lossy().to_string(),
+                    PropName::Num(n) => n.value.to_string(),
+                    _ => continue,
+                };
+                let val = transpile_expression(&kv.value, scope)?;
+                fields.push(format!("{}: {}", key, val));
+            }
+            Prop::Shorthand(id) => {
+                let key = id.sym.to_string();
+                fields.push(format!("{}: {}", key, key));
+            }
+            _ => {}
+        }
+    }
+    Ok(format!("{} {{ {} }}", type_name, fields.join(", ")))
+}
+
+fn extract_single_type_ref_name(type_args: Option<&TsTypeParamInstantiation>) -> Option<String> {
+    let type_args = type_args?;
+    if type_args.params.len() != 1 {
+        return None;
+    }
+    match &*type_args.params[0] {
+        TsType::TsTypeRef(type_ref) => match &type_ref.type_name {
+            TsEntityName::Ident(i) => Some(i.sym.to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn transpile_builtin_cast_call(func_name: &str, args: &[ExprOrSpread], scope: &Scope) -> Result<Option<String>> {
@@ -442,7 +575,12 @@ fn transpile_builtin_cast_call(func_name: &str, args: &[ExprOrSpread], scope: &S
     Ok(Some(out))
 }
 
-fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Scope) -> Result<String> {
+fn transpile_member_call(
+    member: &MemberExpr,
+    args: &[ExprOrSpread],
+    type_args: Option<&TsTypeParamInstantiation>,
+    scope: &Scope,
+) -> Result<String> {
     let obj = transpile_expression(&member.obj, scope)?;
     let prop = match &member.prop {
         MemberProp::Ident(ident) => ident.sym.to_string(),
@@ -466,6 +604,21 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         return Ok(format!("println!(\"{{}}\", {})", arg_strs?.join(", ")));
     }
 
+    if obj == "console" && prop == "read" {
+        let arg_strs: Result<Vec<String>> = args
+            .iter()
+            .map(|arg| transpile_expression(&arg.expr, scope))
+            .collect();
+        let arg_strs = arg_strs?;
+        if arg_strs.is_empty() {
+            return Ok("{ let mut __trust_input = String::new(); std::io::stdin().read_line(&mut __trust_input).unwrap(); __trust_input.trim_end_matches(&['\\n', '\\r'][..]).to_string() }".to_string());
+        }
+        return Ok(format!(
+            "{{ print!(\"{{}}\", {}); let mut __trust_stdout = std::io::stdout(); let _ = std::io::Write::flush(&mut __trust_stdout); let mut __trust_input = String::new(); std::io::stdin().read_line(&mut __trust_input).unwrap(); __trust_input.trim_end_matches(&['\\n', '\\r'][..]).to_string() }}",
+            arg_strs[0]
+        ));
+    }
+
     let arg_strs: Result<Vec<String>> = args
         .iter()
         .map(|arg| transpile_expression(&arg.expr, scope))
@@ -486,23 +639,32 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
         _ => false,
     };
 
-    // Map methods
+    let is_map = member_type
+        .as_deref()
+        .map(|t| t.starts_with("HashMap"))
+        .unwrap_or(false);
+    let is_set = member_type
+        .as_deref()
+        .map(|t| t.starts_with("HashSet"))
+        .unwrap_or(false);
+
+    // Map/Set methods
     match prop.as_str() {
-        "set" if arg_strs.len() == 2 => return Ok(format!("{}.insert({}, {})", obj, arg_strs[0], arg_strs[1])),
-        "get" => return Ok(format!("{}.get(&{})", obj, arg_strs.join(", "))),
-        "has" if arg_strs.len() == 1 => {
-            let is_set = ident_name(&member.obj)
-                .and_then(|n| scope.get(&n))
-                .map(|t| t.starts_with("HashSet"))
-                .unwrap_or(false);
+        "set" if is_map && arg_strs.len() == 2 => {
+            return Ok(format!("{}.insert({}, {})", obj, arg_strs[0], arg_strs[1]))
+        }
+        "get" if is_map && arg_strs.len() == 1 => return Ok(format!("{}.get(&{})", obj, arg_strs[0])),
+        "has" if arg_strs.len() == 1 && (is_map || is_set) => {
             if is_set {
                 return Ok(format!("{}.contains(&{})", obj, arg_strs[0]));
             }
             return Ok(format!("{}.contains_key(&{})", obj, arg_strs[0]));
         }
-        "delete" => return Ok(format!("{}.remove(&{})", obj, arg_strs.join(", "))),
+        "delete" if (is_map || is_set) && arg_strs.len() == 1 => {
+            return Ok(format!("{}.remove(&{})", obj, arg_strs[0]))
+        }
         // Set methods
-        "add" => return Ok(format!("{}.insert({})", obj, arg_strs.join(", "))),
+        "add" if is_set && arg_strs.len() == 1 => return Ok(format!("{}.insert({})", obj, arg_strs[0])),
         _ => {}
     }
 
@@ -646,7 +808,15 @@ fn transpile_member_call(member: &MemberExpr, args: &[ExprOrSpread], scope: &Sco
             _ => ".",
         }
     };
-    Ok(format!("{}{}{}({})", obj, separator, prop, arg_strs.join(", ")))
+    let turbofish = render_turbofish(type_args);
+    Ok(format!(
+        "{}{}{}{}({})",
+        obj,
+        separator,
+        prop,
+        turbofish,
+        arg_strs.join(", ")
+    ))
 }
 
 fn is_numeric_rust_type(ty: &str) -> bool {

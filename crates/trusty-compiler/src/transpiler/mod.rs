@@ -119,6 +119,11 @@ pub fn transpile_to_rust(module: &Module) -> Result<TranspileOutput> {
         }
     }
 
+    // Auto-require serde_json when object literals are lowered to `serde_json::json!(...)`.
+    if all_code.contains("serde_json::json!") && !required_crates.contains(&"serde_json".to_string()) {
+        required_crates.push("serde_json".to_string());
+    }
+
     let mut rust_code = String::new();
 
     for stmt in &use_statements {

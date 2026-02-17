@@ -7,7 +7,9 @@ struct User {
 }
 
 function main() {
-    val u: User = User({ id: 1, name: "Ryan", active: true });
+    val u: User = User( {
+        id: 1, name: "Ryan", active: true
+    });
     val json = toJSON(u);
     console.write(json);
 
